@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-memory-tools"
+version = "0.1.0"
+description = "Project-local JSONL memory, resumable context checkpoints, and optional cross-project semantic brain for coding agents."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "AgentTeam" }
+]
+keywords = ["agents", "memory", "context", "codex", "cli"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.optional-dependencies]
+brain = [
+  "numpy>=1.24",
+  "sentence-transformers>=2.7",
+]
+dev = [
+  "pytest>=8",
+]
+
+[project.scripts]
+agent-memory = "agent_memory_tools.cli:main"
+amt = "agent_memory_tools.cli:main"
+agent-memory-memory = "agent_memory_tools.memory:main"
+agent-memory-context = "agent_memory_tools.context:main"
+agent-memory-brain = "agent_memory_tools.brain:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

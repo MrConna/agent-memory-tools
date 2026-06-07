@@ -1,0 +1,6 @@
+interface:
+  display_name: "Agent Memory"
+  short_description: "Retrieve learnings and save context checkpoints"
+  default_prompt: "Use $agent-memory to retrieve project learnings before starting this task."
+policy:
+  allow_implicit_invocation: true

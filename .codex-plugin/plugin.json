@@ -1,0 +1,34 @@
+{
+  "name": "agent-memory-tools",
+  "version": "0.1.0",
+  "description": "Project-local JSONL memory, resumable context checkpoints, and optional cross-project semantic search for coding agents.",
+  "author": {
+    "name": "AgentTeam"
+  },
+  "homepage": "https://github.com/MrConna/agent-memory-tools",
+  "repository": "https://github.com/MrConna/agent-memory-tools",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "memory",
+    "context",
+    "codex",
+    "cli"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent Memory Tools",
+    "shortDescription": "Retrieve learnings and save agent context",
+    "longDescription": "Agent Memory Tools gives coding agents a lightweight project-local memory workflow: retrieve high-confidence learnings before work, record durable rules and failed approaches, save resumable checkpoints, and optionally sync memories across projects.",
+    "developerName": "AgentTeam",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use project memory before starting this task"
+    ],
+    "brandColor": "#2563EB"
+  }
+}
