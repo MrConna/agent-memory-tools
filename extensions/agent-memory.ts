@@ -646,15 +646,18 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "terminal_list",
     label: "List Terminals",
-    description: "列出所有可投递的终端窗口（tmux sessions/windows），用于 session_send via=terminal。",
-    parameters: Type.Object({}),
-    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+    description: "列出所有可投递的终端窗口（tmux sessions/windows），并显示每个窗口最近的屏幕内容。",
+    parameters: Type.Object({
+      capture: Type.Optional(Type.Boolean({ description: "是否截取屏幕内容，默认 true", default: true })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       try {
         execSync("which tmux", { timeout: 3_000 });
       } catch {
         return { content: [{ type: "text", text: "tmux 未安装或未运行。\n安装: brew install tmux\n启动: tmux new -s worker" }] };
       }
 
+      const doCapture = params.capture !== false;
       const lines: string[] = ["## 终端窗口（tmux）\n"];
       try {
         const sessions = run("tmux list-sessions -F '#{session_name} #{session_windows}' 2>/dev/null || true");
@@ -663,20 +666,78 @@ export default function (pi: ExtensionAPI) {
         }
         for (const line of sessions.split("\n").filter(Boolean)) {
           const [name, windows] = line.split(" ");
-          lines.push(`- **${name}** (${windows} windows)`);
+          lines.push(`### ${name} (${windows} windows)`);
           try {
             const wins = run(`tmux list-windows -t ${name} -F '#{window_index}:#{window_name} #{pane_current_command}' 2>/dev/null || true`);
             if (wins && !wins.startsWith("[error]")) {
-              for (const w of wins.split("\n").filter(Boolean)) lines.push(`  - ${w}`);
+              for (const w of wins.split("\n").filter(Boolean)) {
+                lines.push(`- ${w}`);
+                // 截取屏幕内容
+                if (doCapture) {
+                  try {
+                    const target = `${name}:${w.split(":")[0]}`;
+                    const captured = execSync(
+                      `tmux capture-pane -t '${target}' -p -S -15 2>/dev/null`,
+                      { encoding: "utf-8", timeout: 3_000 }
+                    ).trim();
+                    if (captured) {
+                      const preview = captured.split("\n").filter((l: string) => l.trim()).slice(-5).join("\n");
+                      lines.push(`  \`\`\``);
+                      lines.push(`  ${preview.split("\n").map((l: string) => "  " + l).join("\n")}`);
+                      lines.push(`  \`\`\``);
+                    }
+                  } catch {}
+                }
+              }
             }
           } catch {}
         }
         lines.push("");
-        lines.push("发送: session_send(to: 'worker', message: 'hi', via: 'terminal')");
+        lines.push("发送: session_send(to: '0:0', message: 'hi', via: 'terminal')");
       } catch (e: any) {
         lines.push(`检测失败: ${e.message}`);
       }
       return { content: [{ type: "text", text: lines.join("\n") }] };
+    },
+  });
+
+  // -----------------------------------------------------------------------
+  // terminal_capture — 抓取终端屏幕内容
+  // -----------------------------------------------------------------------
+  pi.registerTool({
+    name: "terminal_capture",
+    label: "Capture Terminal",
+    description: "抓取指定 tmux 终端窗口的屏幕内容，查看对方 agent 的工作进度。", 
+    parameters: Type.Object({
+      target: Type.String({ description: "tmux 目标：session名 或 session:window（如 '0:0' 或 'worker'）" }),
+      lines: Type.Optional(Type.Number({ description: "抓取行数，默认 30", minimum: 5, maximum: 200, default: 30 })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      try {
+        execSync("which tmux", { timeout: 3_000 });
+      } catch {
+        return { content: [{ type: "text", text: "❌ tmux 未安装" }] };
+      }
+      try {
+        const n = params.lines ?? 30;
+        const captured = execSync(
+          `tmux capture-pane -t '${params.target}' -p -S -${n} 2>/dev/null`,
+          { encoding: "utf-8", timeout: 5_000 }
+        ).trim();
+        if (!captured) {
+          return { content: [{ type: "text", text: `终端 ${params.target} 无内容（可能窗口为空）` }] };
+        }
+        // 过滤空行，保留结构
+        const filtered = captured.split("\n").filter(l => l.trim());
+        return {
+          content: [{
+            type: "text",
+            text: `## 终端 ${params.target} 屏幕内容\n\n${filtered.join("\n")}`,
+          }],
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `❌ 抓取失败: ${e.message}\n用 terminal_list 查看可用窗口` }] };
+      }
     },
   });
 
