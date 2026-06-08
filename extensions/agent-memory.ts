@@ -125,7 +125,7 @@ interface Assignment {
   task: string;
   sessionId: string;
   role: string;         // executor, reviewer, scout, etc.
-  status: "active" | "done" | "failed" | "revoked";
+  status: "active" | "done" | "failed" | "revoked" | "session_gone";
   assignedBy: string;   // leader session ID
   createdAt: string;
   updatedAt: string;
@@ -166,6 +166,20 @@ function updateAssignment(cwd: string, id: string, updates: Partial<Assignment>)
   }
   if (found) fs.writeFileSync(file, records.map(r => JSON.stringify(r)).join("\n") + "\n", "utf8");
   return found;
+}
+
+/** 检查 session 文件是否还存在 */
+function sessionExists(sessionId: string): boolean {
+  if (!fs.existsSync(SESSIONS_ROOT)) return false;
+  const shortId = sessionId.slice(0, 8);
+  for (const pDir of fs.readdirSync(SESSIONS_ROOT)) {
+    try {
+      for (const file of fs.readdirSync(path.join(SESSIONS_ROOT, pDir))) {
+        if (file.includes(shortId)) return true;
+      }
+    } catch {}
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,13 +243,25 @@ export default function (pi: ExtensionAPI) {
       }
     }
     // 注入活跃的任务分配（跨 compaction 持久化）
+    // 检测分配的 session 是否还存在，不存在则自动标记 + 告警
     const activeAssignments = loadAssignments(cwd).filter(a => a.status === "active");
     if (activeAssignments.length > 0) {
       const lines = ["## 任务分配（跨会话持久化，context 压缩不会丢失）\n"];
+      const goneLines: string[] = [];
       for (const a of activeAssignments) {
-        lines.push(`- **${a.task.slice(0, 80)}** → session \`${a.sessionId.slice(0, 8)}\` (${a.role ?? "executor"}) [${a.status}]`);
+        const exists = sessionExists(a.sessionId);
+        if (!exists) {
+          // Session 已不存在，自动标记
+          updateAssignment(cwd, a.id, { status: "session_gone" });
+          goneLines.push(`- ~~${a.task.slice(0, 60)}~~ → session \`${a.sessionId.slice(0, 8)}\` **已不可用**，需重新分配`);
+        } else {
+          lines.push(`- **${a.task.slice(0, 80)}** → session \`${a.sessionId.slice(0, 8)}\` (${a.role ?? "executor"}) [${a.status}]`);
+        }
       }
-      blocks.push(lines.join("\n"));
+      if (lines.length > 1) blocks.push(lines.join("\n"));
+      if (goneLines.length > 0) {
+        blocks.push("## ⚠️ 以下任务的执行 session 已不可用，需重新分配\n" + goneLines.join("\n"));
+      }
     }
     if (blocks.length > 0) return { systemPrompt: event.systemPrompt + "\n\n" + blocks.join("\n\n") };
   });
@@ -358,6 +384,13 @@ export default function (pi: ExtensionAPI) {
       let toId = params.sessionId;
       const resolved = resolveSessionId(toId);
       if (resolved) toId = resolved;
+
+      // 检测 session 是否存在
+      if (!sessionExists(toId)) {
+        return {
+          content: [{ type: "text", text: `❌ session \`${toId.slice(0, 8)}\` 不存在或已关闭\n\n请用 session_list 查看可用 session，或用 delegate 派发给新子 agent` }],
+        };
+      }
 
       const id = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
       const now = new Date().toISOString();
