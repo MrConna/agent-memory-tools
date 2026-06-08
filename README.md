@@ -20,11 +20,17 @@ From this checkout:
 python3 -m pip install -e .
 ```
 
-Initialize a project:
+Initialize a project (also installs pi extensions and packages if pi is available):
 
 ```bash
 agent-memory init-project /path/to/project
 ```
+
+This will:
+1. Create `memory/` and `bin/` in the target project
+2. If **pi** is detected: install extensions (`agent-memory.ts`, `delegate.ts`) to `~/.pi/agent/extensions/`
+3. If **pi** is detected: install `pi-subagents` and `pi-intercom` via `pi install`
+4. If **pi** is not found: skip pi-related steps silently
 
 Then inside that project:
 

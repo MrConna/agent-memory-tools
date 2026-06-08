@@ -44,9 +44,91 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     for name in ("memory", "context", "brain"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
-    print(f"✓ Initialized agent memory in {root}")
+    # Install pi extensions
+    _install_pi_extensions()
+
+    # Install pi packages (subagents + intercom)
+    _install_pi_packages()
+
+    print(f"\n✓ Initialized agent memory in {root}")
     print("  Try: bin/memory list")
     print("  Try: bin/context save --description \"first checkpoint\"")
+
+
+def _has_pi() -> bool:
+    """Check if pi is available in PATH."""
+    import subprocess
+    try:
+        subprocess.run(["pi", "--version"], capture_output=True, timeout=5, check=True)
+        return True
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+        return False
+
+
+def _install_pi_extensions() -> None:
+    """Copy pi extensions to ~/.pi/agent/extensions/."""
+    if not _has_pi():
+        print("  → pi not found, skipping pi extensions")
+        return
+
+    import shutil
+    src_dir = Path(__file__).parent.parent.parent / "extensions"
+    dst_dir = Path.home() / ".pi" / "agent" / "extensions"
+
+    if not src_dir.exists():
+        print("  → pi extensions source not found, skipping")
+        return
+
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    installed = []
+    for ext_file in src_dir.glob("*.ts"):
+        dst = dst_dir / ext_file.name
+        if dst.exists():
+            print(f"  → {ext_file.name} already installed, skipping")
+        else:
+            shutil.copy2(ext_file, dst)
+            installed.append(ext_file.name)
+
+    if installed:
+        print(f"  ✓ pi extensions: {', '.join(installed)}")
+        print("    → /reload in pi to activate")
+    else:
+        print("  → pi extensions: all already installed")
+
+
+def _install_pi_packages() -> None:
+    """Install pi-subagents and pi-intercom via pi install."""
+    if not _has_pi():
+        print("  → pi not found, skipping pi packages")
+        return
+
+    import subprocess
+
+    packages = [
+        ("pi-subagents", "Delegate tasks to specialized child agents"),
+        ("pi-intercom", "Direct 1:1 messaging between pi sessions"),
+    ]
+
+    for name, desc in packages:
+        try:
+            result = subprocess.run(
+                ["pi", "install", f"npm:{name}"],
+                capture_output=True, timeout=30, text=True,
+            )
+            if result.returncode == 0:
+                print(f"  ✓ {name} — {desc}")
+            else:
+                # Already installed or other issue
+                if "already" in result.stderr.lower() or "already" in result.stdout.lower():
+                    print(f"  → {name} already installed")
+                else:
+                    print(f"  → {name} install skipped: {result.stderr.strip()[:80]}")
+        except subprocess.TimeoutExpired:
+            print(f"  → {name} install timed out")
+        except Exception as e:
+            print(f"  → {name} install failed: {e}")
+
+    print("    → /reload in pi to activate")
 
 
 def _write_wrapper(path: Path, command: str, *, force: bool) -> None:
