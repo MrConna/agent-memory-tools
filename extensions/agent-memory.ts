@@ -198,6 +198,43 @@ function getStaleMinutes(sessionFile: string): number {
   }
 }
 
+/** 通过 tmux send-keys 向终端窗口投递消息 */
+function sendToTerminal(target: string, message: string): { content: Array<{ type: string; text: string }>; details: Record<string, string> } {
+  // 检测 tmux
+  try {
+    execSync("which tmux", { timeout: 3_000 });
+  } catch {
+    return { content: [{ type: "text", text: "❌ tmux 未安装。安装: brew install tmux" }], details: {} };
+  }
+
+  const sessionName = target.includes(":") ? target.split(":")[0] : target;
+
+  // 检测 session 是否存在
+  try {
+    const sessions = execSync("tmux list-sessions -F '#{session_name}'", { encoding: "utf-8", timeout: 3_000 }).trim();
+    if (!sessions.split("\n").includes(sessionName)) {
+      return {
+        content: [{ type: "text", text: `❌ tmux session '${sessionName}' 不存在。\n可用: ${sessions.split("\n").join(", ")}\n创建: tmux new -s ${sessionName}` }],
+        details: {},
+      };
+    }
+  } catch {
+    return { content: [{ type: "text", text: "❌ 没有运行中的 tmux session。\n启动: tmux new -s worker" }], details: {} };
+  }
+
+  // 投递：输入消息 + Enter
+  try {
+    const escaped = message.replace("'", "'\\''");
+    execSync(`tmux send-keys -t ${target} '${escaped}' Enter`, { timeout: 5_000 });
+    return {
+      content: [{ type: "text", text: `✉️ 已投递到终端（tmux）\n  目标: ${target}\n  消息: ${message.slice(0, 100)}` }],
+      details: { target, via: "terminal" },
+    };
+  } catch (e: any) {
+    return { content: [{ type: "text", text: `❌ 投递失败: ${e.message}` }], details: {} };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
@@ -552,41 +589,91 @@ export default function (pi: ExtensionAPI) {
   });
 
   // -----------------------------------------------------------------------
-  // session_send — 跨 session 发消息（全局信箱）
+  // session_send — 跨 session/终端 发消息
   // -----------------------------------------------------------------------
   pi.registerTool({
     name: "session_send",
     label: "Send to Session",
     description:
-      "向另一个 pi session 发送消息（跨项目）。" +
-      "to 填目标 session ID（8位简写或完整UUID），to=* 表示广播。",
-    promptSnippet: "Send a message to another session (cross-project)",
-    promptGuidelines: ["Use session_list to discover available session IDs first"],
+      "向另一个 agent session 发送消息。" +
+      "via=mailbox（默认）：通过全局信箱，对方需有 agent-memory Extension。" +
+      "via=terminal：通过 tmux send-keys 直接往终端窗口打字，适用于任何交互式 agent（pi/Codex/Claude Code/其他）。",
+    promptSnippet: "Send a message to another session or terminal",
+    promptGuidelines: ["Use session_list to discover pi sessions", "Use terminal_list to discover terminal windows for via=terminal"],
     parameters: Type.Object({
-      to: Type.String({ description: "目标 session ID（8位简写或完整 UUID），* 表示广播" }),
+      to: Type.String({ description: "目标：pi session ID（8位简写/UUID），或终端窗口名（如 my-worker），* 广播所有 pi session" }),
       message: Type.String({ description: "要发送的消息内容" }),
+      via: Type.Optional(Type.String({ description: "投递方式：mailbox（默认，pi 信箱）/ terminal（tmux 终端打字）", default: "mailbox" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const via = params.via ?? "mailbox";
+
+      // ---- via=terminal: tmux send-keys ----
+      if (via === "terminal") {
+        return sendToTerminal(params.to, params.message);
+      }
+
+      // ---- via=mailbox: 全局信箱 ----
       fs.mkdirSync(GLOBAL_MAILBOX, { recursive: true });
       const fromSession = extractSessionId(ctx.sessionManager.getSessionFile());
       let toId = params.to;
       if (toId !== "*") {
         const resolved = resolveSessionId(toId);
         if (resolved) toId = resolved;
-        else return { content: [{ type: "text", text: `❌ 未找到 session: ${params.to}\n用 session_list 查看可用 session` }] };
+        else return { content: [{ type: "text", text: `❌ 未找到 session: ${params.to}\n用 session_list 查看可用 pi session\n如果是非 pi session，用 via=terminal 通过 tmux 投递` }] };
       }
       const id = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
       fs.writeFileSync(path.join(GLOBAL_MAILBOX, `${id}.json`), JSON.stringify({
         id, from: fromSession, to: toId, message: params.message, timestamp: new Date().toISOString(),
       }, null, 2));
       return {
-        content: [{ type: "text", text: `✉️ 已发送\n  从: ${fromSession.slice(0, 8)}...\n  到: ${toId === "*" ? "所有 session" : toId.slice(0, 8) + "..."}\n  消息: ${params.message.slice(0, 100)}` }],
-        details: { from: fromSession, to: toId, messageId: id },
+        content: [{ type: "text", text: `✉️ 已发送（mailbox）\n  从: ${fromSession.slice(0, 8)}...\n  到: ${toId === "*" ? "所有 session" : toId.slice(0, 8) + "..."}\n  消息: ${params.message.slice(0, 100)}` }],
+        details: { from: fromSession, to: toId, messageId: id, via: "mailbox" },
       };
     },
   });
 
   // -----------------------------------------------------------------------
+  // -----------------------------------------------------------------------
+  // terminal_list — 发现可投递的终端窗口
+  // -----------------------------------------------------------------------
+  pi.registerTool({
+    name: "terminal_list",
+    label: "List Terminals",
+    description: "列出所有可投递的终端窗口（tmux sessions/windows），用于 session_send via=terminal。",
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      try {
+        execSync("which tmux", { timeout: 3_000 });
+      } catch {
+        return { content: [{ type: "text", text: "tmux 未安装或未运行。\n安装: brew install tmux\n启动: tmux new -s worker" }] };
+      }
+
+      const lines: string[] = ["## 终端窗口（tmux）\n"];
+      try {
+        const sessions = run("tmux list-sessions -F '#{session_name} #{session_windows}' 2>/dev/null || true");
+        if (!sessions || sessions.startsWith("[error]")) {
+          return { content: [{ type: "text", text: "无 tmux session 运行。\n启动: tmux new -s worker" }] };
+        }
+        for (const line of sessions.split("\n").filter(Boolean)) {
+          const [name, windows] = line.split(" ");
+          lines.push(`- **${name}** (${windows} windows)`);
+          try {
+            const wins = run(`tmux list-windows -t ${name} -F '#{window_index}:#{window_name} #{pane_current_command}' 2>/dev/null || true`);
+            if (wins && !wins.startsWith("[error]")) {
+              for (const w of wins.split("\n").filter(Boolean)) lines.push(`  - ${w}`);
+            }
+          } catch {}
+        }
+        lines.push("");
+        lines.push("发送: session_send(to: 'worker', message: 'hi', via: 'terminal')");
+      } catch (e: any) {
+        lines.push(`检测失败: ${e.message}`);
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    },
+  });
+
   // session_list — 列出所有项目下的 session
   // -----------------------------------------------------------------------
   pi.registerTool({
