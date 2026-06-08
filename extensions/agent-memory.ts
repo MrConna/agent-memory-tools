@@ -117,6 +117,58 @@ function resolveSessionId(shortId: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Assignments — 任务分配持久化（跨 compaction 不丢失）
+// ---------------------------------------------------------------------------
+
+interface Assignment {
+  id: string;
+  task: string;
+  sessionId: string;
+  role: string;         // executor, reviewer, scout, etc.
+  status: "active" | "done" | "failed" | "revoked";
+  assignedBy: string;   // leader session ID
+  createdAt: string;
+  updatedAt: string;
+  result?: string;      // 完成时的摘要
+}
+
+function assignmentsFile(cwd: string): string {
+  const dir = path.join(cwd, "memory");
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, "assignments.jsonl");
+}
+
+function loadAssignments(cwd: string): Assignment[] {
+  const file = assignmentsFile(cwd);
+  if (!fs.existsSync(file)) return [];
+  const records: Assignment[] = [];
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try { records.push(JSON.parse(line)); } catch {}
+  }
+  return records;
+}
+
+function saveAssignment(cwd: string, a: Assignment): void {
+  const file = assignmentsFile(cwd);
+  fs.appendFileSync(file, JSON.stringify(a) + "\n", "utf8");
+}
+
+function updateAssignment(cwd: string, id: string, updates: Partial<Assignment>): Assignment | null {
+  const file = assignmentsFile(cwd);
+  const records = loadAssignments(cwd);
+  let found: Assignment | null = null;
+  for (const r of records) {
+    if (r.id === id) {
+      Object.assign(r, updates, { updatedAt: new Date().toISOString() });
+      found = r;
+    }
+  }
+  if (found) fs.writeFileSync(file, records.map(r => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  return found;
+}
+
+// ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
 
@@ -162,7 +214,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   // -----------------------------------------------------------------------
-  // Before agent start: 注入恢复的上下文 + 相关 learnings
+  // Before agent start: 注入恢复的上下文 + learnings + 活跃分配
   // -----------------------------------------------------------------------
   pi.on("before_agent_start", async (event, _ctx) => {
     if (contextInjected) return;
@@ -175,6 +227,15 @@ export default function (pi: ExtensionAPI) {
       if (learnings && !learnings.startsWith("[error]") && learnings.trim()) {
         blocks.push("## 相关项目记忆\n" + learnings);
       }
+    }
+    // 注入活跃的任务分配（跨 compaction 持久化）
+    const activeAssignments = loadAssignments(cwd).filter(a => a.status === "active");
+    if (activeAssignments.length > 0) {
+      const lines = ["## 任务分配（跨会话持久化，context 压缩不会丢失）\n"];
+      for (const a of activeAssignments) {
+        lines.push(`- **${a.task.slice(0, 80)}** → session \`${a.sessionId.slice(0, 8)}\` (${a.role ?? "executor"}) [${a.status}]`);
+      }
+      blocks.push(lines.join("\n"));
     }
     if (blocks.length > 0) return { systemPrompt: event.systemPrompt + "\n\n" + blocks.join("\n\n") };
   });
@@ -269,6 +330,111 @@ export default function (pi: ExtensionAPI) {
       if (params.confidenceMin) args.push("--confidence-min", String(params.confidenceMin));
       if (params.tag) args.push("--tag", params.tag);
       return { content: [{ type: "text", text: run(`memory ${args.join(" ")}`, cwd) || "No learnings found." }] };
+    },
+  });
+
+  // -----------------------------------------------------------------------
+  // task_assign — 记录任务分配（跨 compaction 持久化）
+  // -----------------------------------------------------------------------
+  pi.registerTool({
+    name: "task_assign",
+    label: "Assign Task to Session",
+    description:
+      "记录一条任务分配关系。当用户指定了某个 session 负责某项任务时，必须调用此工具持久化记录，" +
+      "防止 context 压缩后丢失分配信息。分配关系会在每次会话开始时自动注入到 system prompt。",
+    promptSnippet: "Persist a task-to-session assignment",
+    promptGuidelines: [
+      "Use task_assign whenever the user specifies which session should handle a task",
+      "Assignments survive context compaction — they are injected into system prompt on each session start",
+    ],
+    parameters: Type.Object({
+      task: Type.String({ description: "任务描述，清晰具体，包含验收标准" }),
+      sessionId: Type.String({ description: "执行方 session ID（8位简写或完整 UUID）" }),
+      role: Type.Optional(Type.String({ description: "角色：executor / reviewer / scout / planner / worker", default: "executor" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const fromSession = extractSessionId(ctx.sessionManager.getSessionFile());
+      // 短 ID 补全
+      let toId = params.sessionId;
+      const resolved = resolveSessionId(toId);
+      if (resolved) toId = resolved;
+
+      const id = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6);
+      const now = new Date().toISOString();
+      const assignment: Assignment = {
+        id, task: params.task, sessionId: toId,
+        role: params.role ?? "executor",
+        status: "active", assignedBy: fromSession,
+        createdAt: now, updatedAt: now,
+      };
+      saveAssignment(cwd, assignment);
+
+      return {
+        content: [{
+          type: "text",
+          text: `📌 任务已分配（持久化，compaction 不会丢失）\n  任务: ${params.task.slice(0, 100)}\n  执行: ${toId.slice(0, 8)}... (${params.role ?? "executor"})\n  状态: active\n\n下次会话开始时，此分配会自动注入到 system prompt。`,
+        }],
+        details: { assignmentId: id, sessionId: toId },
+      };
+    },
+  });
+
+  // -----------------------------------------------------------------------
+  // task_list — 列出任务分配
+  // -----------------------------------------------------------------------
+  pi.registerTool({
+    name: "task_list",
+    label: "List Task Assignments",
+    description: "列出所有任务分配关系。按状态过滤，查看哪些任务已分配、已完成、需返工。",
+    parameters: Type.Object({
+      status: Type.Optional(Type.String({ description: "过滤状态：active / done / failed / revoked" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const assignments = loadAssignments(cwd);
+      const filtered = params.status ? assignments.filter(a => a.status === params.status) : assignments;
+      if (filtered.length === 0) {
+        return { content: [{ type: "text", text: params.status ? `无 ${params.status} 状态的任务分配` : "无任务分配" }] };
+      }
+      const lines: string[] = ["## 任务分配\n"];
+      lines.push("| 任务 | Session | 角色 | 状态 | 分配时间 |");
+      lines.push("|---|---|---|---|---|");
+      for (const a of filtered) {
+        const statusEmoji = { active: "🔵", done: "✅", failed: "❌", revoked: "🚫" }[a.status] ?? "❓";
+        lines.push(`| ${a.task.slice(0, 40)} | \`${a.sessionId.slice(0, 8)}\` | ${a.role} | ${statusEmoji} ${a.status} | ${a.createdAt.slice(5, 16)} |`);
+      }
+      if (filtered.some(a => a.result)) {
+        lines.push("");
+        for (const a of filtered.filter(a => a.result)) {
+          lines.push(`**${a.task.slice(0, 40)}** → ${a.result!.slice(0, 100)}`);
+        }
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    },
+  });
+
+  // -----------------------------------------------------------------------
+  // task_update — 更新任务状态
+  // -----------------------------------------------------------------------
+  pi.registerTool({
+    name: "task_update",
+    label: "Update Task Assignment",
+    description: "更新任务分配的状态和结果。子 agent 完成后由 leader 调用，或任务失败时标记。",
+    parameters: Type.Object({
+      assignmentId: Type.String({ description: "分配 ID（task_assign 返回的 assignmentId）" }),
+      status: Type.String({ description: "新状态：done / failed / revoked" }),
+      result: Type.Optional(Type.String({ description: "结果摘要" }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const updated = updateAssignment(cwd, params.assignmentId, {
+        status: params.status as Assignment["status"],
+        ...(params.result ? { result: params.result } : {}),
+      });
+      if (!updated) {
+        return { content: [{ type: "text", text: `❌ 未找到分配: ${params.assignmentId}` }] };
+      }
+      return {
+        content: [{ type: "text", text: `✅ 任务更新\n  ${updated.task.slice(0, 60)}\n  状态: ${updated.status}${updated.result ? "\n  结果: " + updated.result.slice(0, 100) : ""}` }],
+      };
     },
   });
 
