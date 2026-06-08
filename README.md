@@ -140,31 +140,37 @@ Then `/reload` in any running pi session.
 
 ## When to Use What: Communication & Delegation Guide
 
-Three mechanisms for agent-to-agent interaction, each for different scenarios:
+pi 生态有三种 agent 交互机制，加上本项目的跨 session 信箱，共四层：
 
-| | Cross-Session (Mailbox) | Sub-Agent (RPC) | Intercom (TBD) |
-|---|---|---|---|
-| **Extension** | `agent-memory.ts` | `delegate.ts` | — |
-| **Tool** | `session_send` / `session_list` | `delegate` / `delegate_start` / `delegate_send` | — |
-| **Transport** | File-based mailbox (`~/.pi/agent/mailbox/`) | RPC stdin/stdout JSONL | — |
-| **Topology** | Peer-to-peer (existing sessions) | Parent → Child (spawn new process) | Peer-to-peer (real-time) |
-| **Latency** | ~2s polling | Real-time (streaming) | Real-time |
-| **Direction** | One-way message | Bidirectional (send task → get result) | Bidirectional |
-| **Lifecycle** | Sessions must already exist | Sub-agent created on demand | Sessions must already exist |
-| **Result** | No return value | Returns result text | Returns result text |
-| **Model** | Each session has its own model | Can specify different model per sub-agent | Each session has its own model |
-| **Context** | Full session context (AGENTS.md, skills, etc.) | Fresh context, no conversation history | Full session context |
+| | pi-subagents | pi-intercom | Cross-Session (Mailbox) | delegate (RPC) |
+|---|---|---|---|---|
+| **安装** | `pi install npm:pi-subagents` | `pi install npm:pi-intercom` | 本项目 Extension | 本项目 Extension |
+| **工具名** | `subagent` | `intercom` | `session_send` / `session_list` | `delegate` / `delegate_start` |
+| **传输** | 子进程 + 事件流 | 本地 IPC Broker | 文件轮询 (`~/.pi/agent/mailbox/`) | RPC stdin/stdout JSONL |
+| **拓扑** | Parent → Child（新建子进程） | Peer-to-Peer（已有 session 间） | Peer-to-Peer（已有 session 间） | Parent → Child（新建子进程） |
+| **延迟** | 实时流式 | 实时 | ~2s 轮询 | 实时流式 |
+| **方向** | 双向（可 intercom 回传） | 双向（send/ask/reply） | 单向通知 | 双向（发任务→拿结果） |
+| **生命周期** | 按需创建子进程 | 双方 session 必须已存在 | 双方 session 必须已存在 | 按需创建子进程 |
+| **上下文** | 独立上下文 + 自定义 system prompt | 复用已有 session 上下文 | 复用已有 session 上下文 | 全新上下文，无对话历史 |
+| **模型** | 可指定（scout=Haiku, worker=Sonnet） | 跟随各 session | 跟随各 session | 可指定 |
+| **Agent 定义** | `.md` 文件（scout/planner/reviewer/worker） | — | — | — |
+| **工作流** | 单/并行/链式/异步/循环 | — | — | 单次/持久 |
+| **子 agent 回调** | ✅ contact_supervisor / intercom bridge | — | ❌ | ❌ |
+| **UI** | 内嵌渲染 + 展开视图 | Alt+M / `/intercom` 覆盖层 | — | 进度流式 onUpdate |
 
 ### Decision Tree
 
 ```
 需要和其他 agent 交互？
 │
-├─ 对方是已存在的 session？
-│   ├─ 是 → 需要拿到返回结果？
-│   │   ├─ 否，只需通知/触发 → Cross-Session (session_send)
-│   │   └─ 是，需要对方处理并返回 → Intercom (TBD)
-│   └─ 否，需要新起一个 agent 干活 → Sub-Agent (delegate)
+├─ 需要新起一个 agent 干活？
+│   ├─ 是 → 需要专业 agent（scout/reviewer/...）？
+│   │   ├─ 是 → pi-subagents（预定义 agent + 工作流）
+│   │   └─ 否，只需简单派活拿结果 → delegate（轻量 RPC）
+│   └─ 否，对方是已存在的 session →
+│       ├─ 需要双向对话/拿返回结果？
+│       │   ├─ 是 → pi-intercom（send/ask/reply）
+│       │   └─ 否，只需单向通知 → session_send（文件信箱）
 │
 └─ 不需要交互，只需要记住经验？
     └─ memory_add / context_save
@@ -172,38 +178,61 @@ Three mechanisms for agent-to-agent interaction, each for different scenarios:
 
 ### Use Cases
 
-**Cross-Session (`session_send`)** — 通知已存在的 session
+**pi-subagents** — 专业 agent + 工作流编排
 
-- "告诉 PRISM 项目那个 session，datacheck 新增了 2 个 checker"
-- "广播：飞书文档模板更新了，大家注意"
-- "给那个跑测试的 session 发个消息，让它也跑一下新用例"
-- 跨项目知识推送
-- 团队协作通知
+```bash
+pi install npm:pi-subagents
+```
 
-**Sub-Agent (`delegate`)** — 派活给新进程拿结果
+- "用 scout 扫一遍代码库，找到所有认证相关代码"
+- "并行跑 3 个 reviewer：正确性、测试覆盖、复杂度"
+- "scout → planner → worker 链式工作流实现功能"
+- "后台跑 worker，完了通知我"
+- 子 agent 执行中可通过 `contact_supervisor` 回调父 session 问决策
+- 预定义 agent 模板：scout（快速侦察）、planner（规划）、reviewer（审查）、worker（通用实现）、oracle（决策咨询）
+- 自定义 agent：`~/.pi/agent/agents/*.md` 或 `.pi/agents/*.md`
+- 工作流 prompt：`/implement`、`/scout-and-plan`、`/implement-and-review`
 
-- "帮我分析一下这个文件的架构问题" → `delegate(task: "分析架构", cwd: "/path")`
-- "用便宜模型跑个搜索" → `delegate(task: "搜索...", model: "deepseek/deepseek-v4-flash")`
-- "后台跑测试，完了告诉我" → `delegate_start()` + `delegate_send(wait: false)`
-- 并行子任务（多个 delegate 同时跑）
-- 用不同模型处理不同子任务
-- 长时间运行的后台任务
+**pi-intercom** — 已有 session 间实时双向通信
 
-**Intercom (TBD)** — 已有 session 间的双向协作
+```bash
+pi install npm:pi-intercom
+```
 
-- "让那个 session 帮我查一下它项目里的 X，我需要结果"
+- "让 PRISM 那个 session 帮我查一下它项目里 datacheck 的 checker 列表"
 - 两个 session 协作完成一个跨项目任务
-- 需要：请求-响应模式、超时控制、结果回传
+- `intercom({ action: "send", to: "session-name", message: "..." })` 发送
+- `intercom({ action: "ask", to: "session-name", message: "..." })` 提问并等待回复
+- `intercom({ action: "reply", message: "..." })` 回复
+- Alt+M 或 `/intercom` 打开 UI 选择目标 session
+- 与 pi-subagents 联动：子 agent 可通过 intercom bridge 回调父 session
 
-### Why Not Just One Mechanism?
+**session_send（本项目）** — 跨 session 单向通知
 
-| 需求 | Mailbox 不够 | Delegate 不够 | 需要 Intercom |
-|------|-------------|--------------|-------------|
-| 发消息给已有 session | ✅ 够用 | ❌ 只能创新进程 | — |
-| 拿到返回结果 | ❌ 单向 | ✅ 有结果 | ✅ 需要 |
-| 复用已有上下文 | ✅ session 已有 | ❌ 全新上下文 | ✅ 需要 |
-| 指定模型 | ❌ 跟随 session | ✅ 可指定 | ❌ 跟随 session |
-| 实时流式输出 | ❌ 轮询 2s | ✅ RPC 流式 | ✅ 需要 |
+- "广播：飞书文档模板更新了"
+- "告诉那个 session，datacheck 新增了 2 个 checker"
+- 无需安装额外包，`agent-memory.ts` Extension 自带
+- 轻量，不依赖 IPC broker
+- 适合不需要回复的 fire-and-forget 场景
+
+**delegate（本项目）** — 轻量级子 agent 派活
+
+- "帮我分析一下这个文件的架构" → `delegate(task: "分析架构")`
+- "用便宜模型跑个搜索" → `delegate(task: "...", model: "deepseek/deepseek-v4-flash")`
+- 无需预定义 agent 模板，直接描述任务
+- 适合简单的一次性任务，不需要专业 agent 角色
+
+### Recommendation
+
+| 场景 | 推荐方案 | 理由 |
+|------|---------|------|
+| 专业代码审查 | pi-subagents (reviewer) | 预定义审查 prompt，支持并行多维度 |
+| 快速代码侦察 | pi-subagents (scout) | Haiku 模型 + 限制工具集，快且省 |
+| 复杂多步实现 | pi-subagents (chain) | scout→planner→worker 自动串联 |
+| 简单一次性任务 | delegate | 无需定义 agent，直接描述任务 |
+| 跨项目实时协作 | pi-intercom | 双向通信，ask/reply 模式 |
+| 跨项目通知 | session_send | 单向通知，无需对方安装额外包 |
+| 子 agent 需要回调父 | pi-subagents + pi-intercom | intercom bridge 自动配置 |
 
 ## Codex Skill
 
