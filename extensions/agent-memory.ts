@@ -279,22 +279,24 @@ export default function (pi: ExtensionAPI) {
 
     pi.on("session_shutdown", async () => { clearInterval(mailboxTimer); clearInterval(assignmentWatchTimer); });
 
-    // 分配巡检：每 10 秒检查 active 分配
+    // 分配巡检：每 60 秒检查 active 分配
     // 1. session 文件是否还存在（进程退出）
     // 2. session 是否还在活跃工作（文件长时间未更新 = 可能卡住）
     // 3. 是否超时（分配时指定了 timeoutMinutes）
+    const notifiedStale = new Set<string>(); // 已通知过的 stale assignment，避免重复通知
     const assignmentWatchTimer = setInterval(() => {
       try {
         const assignments = loadAssignments(cwd).filter(a => a.status === "active");
-        if (assignments.length === 0) return;
+        if (assignments.length === 0) { notifiedStale.clear(); return; }
         const now = Date.now();
-        const STALE_MINUTES = 10; // session 文件 10 分钟未更新视为可能卡住
+        const STALE_MINUTES = 10;
 
         for (const a of assignments) {
           // 检测 1：session 是否还存在
           const sessionFile = findSessionFile(a.sessionId);
           if (!sessionFile) {
             updateAssignment(cwd, a.id, { status: "session_gone" });
+            notifiedStale.delete(a.id); // 已自动标记，不再通知
             pi.sendUserMessage(
               `⚠️ 任务「${a.task.slice(0, 60)}」的执行 session \`${a.sessionId.slice(0, 8)}\` 已不可用（进程已退出）。` +
               `请用 task_assign 重新分配，或 delegate 派给新子 agent。`,
@@ -303,22 +305,25 @@ export default function (pi: ExtensionAPI) {
             continue;
           }
 
-          // 检测 2：session 是否还在活跃工作
+          // 检测 2：session 是否还在活跃工作（只通知一次）
           const staleMin = getStaleMinutes(sessionFile);
-          if (staleMin > STALE_MINUTES) {
+          if (staleMin > STALE_MINUTES && !notifiedStale.has(a.id)) {
+            notifiedStale.add(a.id); // 标记已通知，后续不再重复
             pi.sendUserMessage(
               `⏳ 任务「${a.task.slice(0, 60)}」的执行 session \`${a.sessionId.slice(0, 8)}\` 已 ${Math.round(staleMin)} 分钟无活动，可能卡住了。` +
-              `用 session_list 查看状态，或用 task_update(status: "failed") 取消后重新分配。`,
+              `用 task_update(status: "failed") 取消，或 session_send 询问进度。`,
               { deliverAs: "followUp" }
             );
-            continue; // 只通知一次，不自动标记，等 Leader 决策
           }
+          // 如果恢复活跃了，清除已通知标记（下次卡住再通知）
+          if (staleMin <= STALE_MINUTES) notifiedStale.delete(a.id);
 
           // 检测 3：是否超时
           if (a.timeoutMinutes && a.timeoutMinutes > 0) {
             const elapsedMin = (now - new Date(a.createdAt).getTime()) / 60_000;
             if (elapsedMin > a.timeoutMinutes) {
               updateAssignment(cwd, a.id, { status: "timeout" });
+              notifiedStale.delete(a.id);
               pi.sendUserMessage(
                 `⏰ 任务「${a.task.slice(0, 60)}」已超时（${a.timeoutMinutes}分钟），session \`${a.sessionId.slice(0, 8)}\`。` +
                 `已自动标记为 timeout，请用 task_assign 重新分配。`,
@@ -328,7 +333,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
       } catch {}
-    }, 10_000);
+    }, 60_000);
   });
 
   // -----------------------------------------------------------------------
