@@ -207,13 +207,13 @@ pi install npm:pi-intercom
 - Alt+M 或 `/intercom` 打开 UI 选择目标 session
 - 与 pi-subagents 联动：子 agent 可通过 intercom bridge 回调父 session
 
-**session_send（本项目）** — 跨 session 单向通知
+**session_send（本项目）** — pi-intercom 的轻量 fallback
 
-- "广播：飞书文档模板更新了"
-- "告诉那个 session，datacheck 新增了 2 个 checker"
-- 无需安装额外包，`agent-memory.ts` Extension 自带
-- 轻量，不依赖 IPC broker
-- 适合不需要回复的 fire-and-forget 场景
+- 当 pi-intercom 未安装时的降级方案
+- 文件信箱，无额外依赖，不依赖 broker 进程
+- 单向通知，~2s 延迟
+- 支持广播（`to: "*"`），pi-intercom 不支持
+- 推荐优先使用 pi-intercom，session_send 仅作兜底
 
 **delegate（本项目）** — 轻量级子 agent 派活
 
@@ -231,7 +231,7 @@ pi install npm:pi-intercom
 | 复杂多步实现 | pi-subagents (chain) | scout→planner→worker 自动串联 |
 | 简单一次性任务 | delegate | 无需定义 agent，直接描述任务 |
 | 跨项目实时协作 | pi-intercom | 双向通信，ask/reply 模式 |
-| 跨项目通知 | session_send | 单向通知，无需对方安装额外包 |
+| 跨项目通知 | pi-intercom 或 session_send | pi-intercom 优先；session_send 仅作 fallback（无 broker 时） |
 | 子 agent 需要回调父 | pi-subagents + pi-intercom | intercom bridge 自动配置 |
 
 ## Codex Skill
