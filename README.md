@@ -294,6 +294,21 @@ python3 -m venv .venv
          └──────────────────────────────────┘
 ```
 
+## Orchestration Principle
+
+When there is a task list or multi-step plan, the **leader agent does not execute** — it orchestrates.
+
+```
+规划 → 派发 → 监控 → Review → 整理 → 未完成？继续
+```
+
+| Role | Does | Does Not |
+|------|-------|----------|
+| Leader | Plan, delegate, monitor, review, summarize | Write code, analyze files, run tests |
+| Sub-agent | Execute tasks, return results | Make architectural decisions |
+
+See `skills/agent-orchestrator/SKILL.md` for the full guide.
+
 ## License
 
 MIT
