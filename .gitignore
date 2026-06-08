@@ -10,3 +10,4 @@ build/
 *.egg-info/
 .brain/
 memory/*.jsonl
+node_modules/
