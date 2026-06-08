@@ -455,7 +455,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       assignmentId: Type.String({ description: "分配 ID（task_assign 返回的 assignmentId）" }),
       status: Type.String({ description: "新状态：done / failed / revoked" }),
-      result: Type.Optional(Type.String({ description: "结果摘要" }),
+      result: Type.Optional(Type.String({ description: "结果摘要" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const updated = updateAssignment(cwd, params.assignmentId, {
