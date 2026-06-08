@@ -222,10 +222,11 @@ function sendToTerminal(target: string, message: string): { content: Array<{ typ
     return { content: [{ type: "text", text: "❌ 没有运行中的 tmux session。\n启动: tmux new -s worker" }], details: {} };
   }
 
-  // 投递：输入消息 + Enter
+  // 投递：先输入文本，再单独发 Enter（分两步更可靠）
   try {
     const escaped = message.replace("'", "'\\''");
-    execSync(`tmux send-keys -t ${target} '${escaped}' Enter`, { timeout: 5_000 });
+    execSync(`tmux send-keys -t ${target} '${escaped}'`, { timeout: 5_000 });
+    execSync(`tmux send-keys -t ${target} Enter`, { timeout: 3_000 });
     return {
       content: [{ type: "text", text: `✉️ 已投递到终端（tmux）\n  目标: ${target}\n  消息: ${message.slice(0, 100)}` }],
       details: { target, via: "terminal" },
