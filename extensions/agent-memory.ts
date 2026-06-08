@@ -125,8 +125,9 @@ interface Assignment {
   task: string;
   sessionId: string;
   role: string;         // executor, reviewer, scout, etc.
-  status: "active" | "done" | "failed" | "revoked" | "session_gone";
+  status: "active" | "done" | "failed" | "revoked" | "session_gone" | "timeout";
   assignedBy: string;   // leader session ID
+  timeoutMinutes?: number;  // 超时时间（分钟），0=不限
   createdAt: string;
   updatedAt: string;
   result?: string;      // 完成时的摘要
@@ -170,16 +171,31 @@ function updateAssignment(cwd: string, id: string, updates: Partial<Assignment>)
 
 /** 检查 session 文件是否还存在 */
 function sessionExists(sessionId: string): boolean {
-  if (!fs.existsSync(SESSIONS_ROOT)) return false;
+  return findSessionFile(sessionId) !== null;
+}
+
+/** 找到 session 文件路径，不存在返回 null */
+function findSessionFile(sessionId: string): string | null {
+  if (!fs.existsSync(SESSIONS_ROOT)) return null;
   const shortId = sessionId.slice(0, 8);
   for (const pDir of fs.readdirSync(SESSIONS_ROOT)) {
     try {
       for (const file of fs.readdirSync(path.join(SESSIONS_ROOT, pDir))) {
-        if (file.includes(shortId)) return true;
+        if (file.includes(shortId)) return path.join(SESSIONS_ROOT, pDir, file);
       }
     } catch {}
   }
-  return false;
+  return null;
+}
+
+/** 返回 session 文件多少分钟没更新 */
+function getStaleMinutes(sessionFile: string): number {
+  try {
+    const stat = fs.statSync(sessionFile);
+    return (Date.now() - stat.mtimeMs) / 60_000;
+  } catch {
+    return 999; // 文件读不到，视为严重卡住
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +240,58 @@ export default function (pi: ExtensionAPI) {
       } catch {}
     }, 2000);
 
-    pi.on("session_shutdown", async () => { clearInterval(mailboxTimer); });
+    pi.on("session_shutdown", async () => { clearInterval(mailboxTimer); clearInterval(assignmentWatchTimer); });
+
+    // 分配巡检：每 10 秒检查 active 分配
+    // 1. session 文件是否还存在（进程退出）
+    // 2. session 是否还在活跃工作（文件长时间未更新 = 可能卡住）
+    // 3. 是否超时（分配时指定了 timeoutMinutes）
+    const assignmentWatchTimer = setInterval(() => {
+      try {
+        const assignments = loadAssignments(cwd).filter(a => a.status === "active");
+        if (assignments.length === 0) return;
+        const now = Date.now();
+        const STALE_MINUTES = 10; // session 文件 10 分钟未更新视为可能卡住
+
+        for (const a of assignments) {
+          // 检测 1：session 是否还存在
+          const sessionFile = findSessionFile(a.sessionId);
+          if (!sessionFile) {
+            updateAssignment(cwd, a.id, { status: "session_gone" });
+            pi.sendUserMessage(
+              `⚠️ 任务「${a.task.slice(0, 60)}」的执行 session \`${a.sessionId.slice(0, 8)}\` 已不可用（进程已退出）。` +
+              `请用 task_assign 重新分配，或 delegate 派给新子 agent。`,
+              { deliverAs: "followUp" }
+            );
+            continue;
+          }
+
+          // 检测 2：session 是否还在活跃工作
+          const staleMin = getStaleMinutes(sessionFile);
+          if (staleMin > STALE_MINUTES) {
+            pi.sendUserMessage(
+              `⏳ 任务「${a.task.slice(0, 60)}」的执行 session \`${a.sessionId.slice(0, 8)}\` 已 ${Math.round(staleMin)} 分钟无活动，可能卡住了。` +
+              `用 session_list 查看状态，或用 task_update(status: "failed") 取消后重新分配。`,
+              { deliverAs: "followUp" }
+            );
+            continue; // 只通知一次，不自动标记，等 Leader 决策
+          }
+
+          // 检测 3：是否超时
+          if (a.timeoutMinutes && a.timeoutMinutes > 0) {
+            const elapsedMin = (now - new Date(a.createdAt).getTime()) / 60_000;
+            if (elapsedMin > a.timeoutMinutes) {
+              updateAssignment(cwd, a.id, { status: "timeout" });
+              pi.sendUserMessage(
+                `⏰ 任务「${a.task.slice(0, 60)}」已超时（${a.timeoutMinutes}分钟），session \`${a.sessionId.slice(0, 8)}\`。` +
+                `已自动标记为 timeout，请用 task_assign 重新分配。`,
+                { deliverAs: "followUp" }
+              );
+            }
+          }
+        }
+      } catch {}
+    }, 10_000);
   });
 
   // -----------------------------------------------------------------------
@@ -377,6 +444,7 @@ export default function (pi: ExtensionAPI) {
       task: Type.String({ description: "任务描述，清晰具体，包含验收标准" }),
       sessionId: Type.String({ description: "执行方 session ID（8位简写或完整 UUID）" }),
       role: Type.Optional(Type.String({ description: "角色：executor / reviewer / scout / planner / worker", default: "executor" })),
+      timeoutMinutes: Type.Optional(Type.Number({ description: "超时时间（分钟），超时自动标记 timeout。0 或不填=不限", minimum: 0 })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const fromSession = extractSessionId(ctx.sessionManager.getSessionFile());
@@ -397,6 +465,7 @@ export default function (pi: ExtensionAPI) {
       const assignment: Assignment = {
         id, task: params.task, sessionId: toId,
         role: params.role ?? "executor",
+        timeoutMinutes: params.timeoutMinutes,
         status: "active", assignedBy: fromSession,
         createdAt: now, updatedAt: now,
       };
@@ -405,7 +474,7 @@ export default function (pi: ExtensionAPI) {
       return {
         content: [{
           type: "text",
-          text: `📌 任务已分配（持久化，compaction 不会丢失）\n  任务: ${params.task.slice(0, 100)}\n  执行: ${toId.slice(0, 8)}... (${params.role ?? "executor"})\n  状态: active\n\n下次会话开始时，此分配会自动注入到 system prompt。`,
+          text: `📌 任务已分配（持久化，compaction 不会丢失）\n  任务: ${params.task.slice(0, 100)}\n  执行: ${toId.slice(0, 8)}... (${params.role ?? "executor"})\n  超时: ${params.timeoutMinutes ? params.timeoutMinutes + "分钟" : "不限"}\n  状态: active\n\n下次会话开始时，此分配会自动注入到 system prompt。\n巡检每 10 秒检测 session 存活和活跃度。`,
         }],
         details: { assignmentId: id, sessionId: toId },
       };
@@ -429,11 +498,22 @@ export default function (pi: ExtensionAPI) {
         return { content: [{ type: "text", text: params.status ? `无 ${params.status} 状态的任务分配` : "无任务分配" }] };
       }
       const lines: string[] = ["## 任务分配\n"];
-      lines.push("| 任务 | Session | 角色 | 状态 | 分配时间 |");
-      lines.push("|---|---|---|---|---|");
+      lines.push("| 任务 | Session | 角色 | 状态 | 活跃度 | 超时 | 分配时间 |");
+      lines.push("|---|---|---|---|---|---|---|");
       for (const a of filtered) {
-        const statusEmoji = { active: "🔵", done: "✅", failed: "❌", revoked: "🚫" }[a.status] ?? "❓";
-        lines.push(`| ${a.task.slice(0, 40)} | \`${a.sessionId.slice(0, 8)}\` | ${a.role} | ${statusEmoji} ${a.status} | ${a.createdAt.slice(5, 16)} |`);
+        const statusEmoji: Record<string, string> = { active: "🔵", done: "✅", failed: "❌", revoked: "🚫", session_gone: "💀", timeout: "⏰" };
+        const emoji = statusEmoji[a.status] ?? "❓";
+        let activity = "—";
+        if (a.status === "active") {
+          const sf = findSessionFile(a.sessionId);
+          if (!sf) activity = "💀 已退出";
+          else {
+            const stale = Math.round(getStaleMinutes(sf));
+            activity = stale < 1 ? "🟢 活跃" : stale < 10 ? `🟡 ${stale}min前` : `🔴 ${stale}min前`;
+          }
+        }
+        const timeout = a.timeoutMinutes ? `${a.timeoutMinutes}min` : "不限";
+        lines.push(`| ${a.task.slice(0, 30)} | \`${a.sessionId.slice(0, 8)}\` | ${a.role} | ${emoji} ${a.status} | ${activity} | ${timeout} | ${a.createdAt.slice(5, 16)} |`);
       }
       if (filtered.some(a => a.result)) {
         lines.push("");
