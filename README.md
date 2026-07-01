@@ -83,16 +83,28 @@ agent-memory brain search "agent routing rules"
 
 Bind agent sessions to stable commands so you can resume after an accidental close.
 
+In **tmux** environments, session management prefers tmux: the bound command
+attaches to an existing tmux session or creates a new detached tmux session
+running the agent resume command. Outside tmux, it falls back to the native
+agent CLI resume command.
+
 ```bash
 # Scan recent sessions
 agent-memory session scan --runtime pi --cwd . --limit 5
 agent-memory session scan --runtime codex --limit 5
 
-# Bind a command
+# Bind a command (auto-detects tmux if $TMUX is set)
 agent-memory session bind talkwithai-main \
   --runtime pi \
   --session-id 019ec97f-f34d-770d-9187-e88abc54c9b8 \
   --cwd /path/to/project
+
+# Force native backend
+agent-memory session bind talkwithai-main \
+  --runtime pi \
+  --session-id <id> \
+  --cwd /path/to/project \
+  --backend native
 
 # Resume via the generated command
 talkwithai-main
@@ -113,6 +125,15 @@ Supported runtimes:
 | Codex | `codex resume -C <cwd> [--profile <p>] <thread-id>` |
 | pi | `pi --session-id <session-id>` |
 | Claude | `claude --continue --cwd <cwd> [--name <name>]` |
+
+Backends:
+
+| Backend | Behavior |
+|---------|----------|
+| `native` | Run the agent's own resume command directly |
+| `tmux` | Attach to existing tmux session, or create a new detached tmux session running the resume command |
+
+The default backend is `tmux` when `$TMUX` is present, otherwise `native`.
 
 ## pi Extensions
 
