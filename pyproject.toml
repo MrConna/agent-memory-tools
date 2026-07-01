@@ -40,6 +40,7 @@ agent-memory-memory = "agent_memory_tools.memory:main"
 agent-memory-context = "agent_memory_tools.context:main"
 agent-memory-brain = "agent_memory_tools.brain:main"
 agent-memory-session = "agent_memory_tools.session:main"
+agent-memory-health = "agent_memory_tools.health:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

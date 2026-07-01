@@ -170,3 +170,15 @@ def test_session_tmux_backend_dry_run(tmp_path: Path) -> None:
         str(bin_dir),
     )
     assert unbind.returncode == 0, unbind.stderr
+
+
+def test_health_check_missing_session(tmp_path: Path) -> None:
+    result = run_cli(
+        "health",
+        "check",
+        "--session-id",
+        "00000000-0000-0000-0000-000000000000",
+        cwd=tmp_path,
+    )
+    assert result.returncode == 1, result.stderr
+    assert "Session file not found" in result.stdout

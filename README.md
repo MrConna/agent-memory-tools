@@ -69,6 +69,7 @@ agent-memory-memory list
 agent-memory-context restore
 agent-memory-brain status
 agent-memory-session bind talkwithai-main --runtime pi --session-id <id> --cwd .
+agent-memory-health check --session-id <id>
 ```
 
 ## Optional Brain
@@ -138,6 +139,22 @@ Backends:
 | `tmux` | Attach to existing tmux session, or create a new detached tmux session running the resume command |
 
 The default backend is `tmux` when `$TMUX` is present, otherwise `native`.
+
+## Health Checks
+
+Detect loop patterns in agent sessions so interrupted work can be diagnosed on resume:
+
+```bash
+agent-memory health check --session-id <pi-session-id>
+agent-memory health check --recent-turns 10 --loop-threshold 3
+```
+
+Detected patterns include:
+- Repeated identical tool calls
+- Consecutive tool errors
+- Assistant turns with no text response (only tool calls)
+
+When used inside the pi extension, the `before_agent_start` hook can run this check automatically and inject a recovery hint if a loop is detected.
 
 ## pi Extensions
 

@@ -248,8 +248,10 @@ export default function (pi: ExtensionAPI) {
   // -----------------------------------------------------------------------
   // Session start: 恢复上下文 + 启动全局信箱监听
   // -----------------------------------------------------------------------
+  let currentSessionId = "";
+
   pi.on("session_start", async (_event, ctx) => {
-    const currentSessionId = extractSessionId(ctx.sessionManager.getSessionFile());
+    currentSessionId = extractSessionId(ctx.sessionManager.getSessionFile());
 
     const restored = run("context restore --latest", cwd);
     if (!restored.startsWith("[error]") && !restored.includes("No saved contexts")) {
@@ -373,6 +375,20 @@ export default function (pi: ExtensionAPI) {
         blocks.push("## ⚠️ 以下任务的执行 session 已不可用，需重新分配\n" + goneLines.join("\n"));
       }
     }
+    // Health check: detect loop patterns from the current session history.
+    if (currentSessionId) {
+      const health = run(`health check --session-id "${currentSessionId}" --recent-turns 10 --loop-threshold 3`, cwd);
+      if (health && !health.startsWith("[error]")) {
+        try {
+          const report = JSON.parse(health);
+          if (!report.is_healthy && report.loop_patterns && report.loop_patterns.length > 0) {
+            const patterns = report.loop_patterns.map((p: any) => `- ${p.type}: ${p.description}`).join("\n");
+            blocks.push(`## ⚠️ 检测到历史会话可能存在循环\n${patterns}\n\n如果刚才被打断，请避免直接重复上一步动作。先 review 最近失败原因，必要时换策略或请求用户确认。`);
+          }
+        } catch {}
+      }
+    }
+
     if (blocks.length > 0) return { systemPrompt: event.systemPrompt + "\n\n" + blocks.join("\n\n") };
   });
 

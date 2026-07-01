@@ -158,7 +158,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
         agents.write_text(AGENTS_TEMPLATE.format(project_name=project_name), encoding="utf-8")
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session"):
+    for name in ("memory", "context", "brain", "session", "health"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     # Install pi extensions
