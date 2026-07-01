@@ -29,9 +29,10 @@ agent-memory init-project /path/to/project
 
 This will:
 1. Create `memory/` and `bin/` in the target project
-2. If **pi** is detected: install extensions (`agent-memory.ts`, `delegate.ts`) to `~/.pi/agent/extensions/`
-3. If **pi** is detected: install `pi-subagents` and `pi-intercom` via `pi install`
-4. If **pi** is not found: skip pi-related steps silently
+2. Create **LLM Wiki scaffolding**: `knowledge/`, `raw/`, `docs/`, and `AGENTS.md`, following the [Karpathy LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern
+3. If **pi** is detected: install extensions (`agent-memory.ts`, `delegate.ts`) to `~/.pi/agent/extensions/`
+4. If **pi** is detected: install `pi-subagents` and `pi-intercom` via `pi install`
+5. If **pi** is not found: skip pi-related steps silently
 
 Then inside that project:
 
@@ -40,7 +41,10 @@ bin/memory apply --query "task keywords"
 bin/memory add "Durable lesson" --confidence 8 --source implementation --tags workflow
 bin/context save --description "Implemented feature" --decisions "d1|d2" --remaining "r1|r2"
 bin/context restore
+bin/session bind my-task --runtime pi --session-id <id> --cwd .
 ```
+
+The generated `AGENTS.md` and `docs/knowledge-management.md` describe how to maintain the wiki: ingest sources into `raw/` and `knowledge/`, query against the wiki, and file answers back into it.
 
 ## CLI
 
