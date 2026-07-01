@@ -4,6 +4,10 @@ Agent Session Command — bind an agent session to a stable CLI entrypoint.
 
 Supports Codex, pi, and Claude Code. Creates a named command (e.g. `prism-vqa`)
 that resumes the bound session from any terminal.
+
+In tmux environments, the tool prefers tmux session management: it attaches to
+an existing tmux session or creates a new detached tmux session running the
+agent resume command.
 """
 
 from __future__ import annotations
@@ -98,7 +102,12 @@ def normalize_cwd(value: str | None) -> str:
     return str(cwd.resolve())
 
 
-def build_resume_command(binding: dict[str, Any], extra_args: list[str]) -> list[str]:
+def detect_default_backend() -> str:
+    """Prefer tmux when already running inside tmux."""
+    return "tmux" if os.environ.get("TMUX") else "native"
+
+
+def build_native_resume_command(binding: dict[str, Any], extra_args: list[str]) -> list[str]:
     runtime = binding["runtime"]
     defaults = RUNTIME_DEFAULTS[runtime]
     template = binding.get("resume_template") or defaults["resume_template"]
@@ -131,8 +140,46 @@ def build_resume_command(binding: dict[str, Any], extra_args: list[str]) -> list
     return shlex.split(raw)
 
 
+def build_tmux_launch_command(binding: dict[str, Any]) -> str:
+    """Build the command string that a new tmux session will execute."""
+    native = build_native_resume_command(binding, [])
+    # Prefix with cd to ensure cwd is correct inside tmux.
+    return f"cd {shlex.quote(binding['cwd'])} && {' '.join(shlex.quote(p) for p in native)}"
+
+
 def quote_command(command: list[str]) -> str:
     return " ".join(shlex.quote(part) for part in command)
+
+
+def tmux_session_exists(name: str) -> bool:
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", name],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def tmux_create_and_attach(name: str, launch_command: str, cwd: str, dry_run: bool = False) -> int:
+    if dry_run:
+        print(f"tmux new-session -d -s {shlex.quote(name)} -c {shlex.quote(cwd)} {shlex.quote(launch_command)}")
+        print(f"tmux attach -t {shlex.quote(name)}")
+        return 0
+
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", name, "-c", cwd, launch_command],
+        check=True,
+    )
+    subprocess.run(["tmux", "attach", "-t", name])
+    return 0
+
+
+def tmux_attach(name: str, dry_run: bool = False) -> int:
+    if dry_run:
+        print(f"tmux attach -t {shlex.quote(name)}")
+        return 0
+    subprocess.run(["tmux", "attach", "-t", name])
+    return 0
 
 
 def create_shim(path: Path, script_path: Path, command_name: str) -> None:
@@ -203,9 +250,10 @@ def cmd_bind(args: argparse.Namespace) -> int:
 
     session_id = resolve_session_id(runtime, args.session_id)
     cwd = normalize_cwd(args.cwd)
+    backend = args.backend or detect_default_backend()
 
     registry = load_registry(Path(args.registry))
-    registry["commands"][args.name] = {
+    binding: dict[str, Any] = {
         "runtime": runtime,
         "session_id": session_id,
         "cwd": cwd,
@@ -214,8 +262,13 @@ def cmd_bind(args: argparse.Namespace) -> int:
         "bin": args.bin,
         "extra_args": args.extra_args or [],
         "resume_template": args.resume_template,
+        "backend": backend,
+        "tmux_session_name": args.tmux_session_name or args.name,
         "created_at": now_iso(),
     }
+    if backend == "tmux":
+        binding["launch_command"] = build_tmux_launch_command(binding)
+    registry["commands"][args.name] = binding
     write_registry(Path(args.registry), registry)
 
     bin_dir = Path(args.bin_dir)
@@ -223,7 +276,7 @@ def cmd_bind(args: argparse.Namespace) -> int:
     shim_path = bin_dir / args.name
     create_shim(shim_path, script_path, args.name)
 
-    print(f"Bound '{args.name}' -> {runtime} session {session_id}")
+    print(f"Bound '{args.name}' -> {runtime} session {session_id} (backend={backend})")
     print(f"Registry: {args.registry}")
     print(f"Shim: {shim_path}")
     if str(bin_dir) not in os.environ.get("PATH", ""):
@@ -237,7 +290,21 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not binding:
         die(f"unknown command: {args.name}; run 'list' to see bindings")
 
-    command = build_resume_command(binding, args.resume_args or [])
+    backend = binding.get("backend", "native")
+
+    if backend == "tmux":
+        tmux_name = binding.get("tmux_session_name") or args.name
+        if tmux_session_exists(tmux_name):
+            return tmux_attach(tmux_name, dry_run=args.dry_run)
+        launch_command = binding.get("launch_command") or build_tmux_launch_command(binding)
+        return tmux_create_and_attach(
+            tmux_name,
+            launch_command,
+            binding["cwd"],
+            dry_run=args.dry_run,
+        )
+
+    command = build_native_resume_command(binding, args.resume_args or [])
     if args.dry_run:
         print(quote_command(command))
         return 0
@@ -253,7 +320,10 @@ def cmd_show(args: argparse.Namespace) -> int:
     if not binding:
         die(f"unknown command: {args.name}")
     print(json.dumps(binding, ensure_ascii=False, indent=2))
-    print("resume command:", quote_command(build_resume_command(binding, [])))
+    if binding.get("backend") == "tmux":
+        print("tmux attach command:", f"tmux attach -t {shlex.quote(binding.get('tmux_session_name', args.name))}")
+    else:
+        print("resume command:", quote_command(build_native_resume_command(binding, [])))
     return 0
 
 
@@ -263,10 +333,11 @@ def cmd_list(args: argparse.Namespace) -> int:
     if not commands:
         print("No session commands bound.")
         return 0
-    print(f"{'NAME':<20} {'RUNTIME':<8} {'SESSION_ID':<40} {'CWD'}")
+    print(f"{'NAME':<20} {'BACKEND':<8} {'RUNTIME':<8} {'SESSION_ID':<40} {'CWD'}")
     for name, binding in sorted(commands.items()):
         print(
-            f"{name:<20} {binding['runtime']:<8} {binding['session_id']:<40} {binding['cwd']}"
+            f"{name:<20} {binding.get('backend', 'native'):<8} {binding['runtime']:<8} "
+            f"{binding['session_id']:<40} {binding['cwd']}"
         )
     return 0
 
@@ -319,6 +390,13 @@ def main(argv: list[str] | None = None) -> int:
     bind_p.add_argument("--bin", help="Override binary name")
     bind_p.add_argument("--extra-args", nargs="*", help="Extra args passed to resume command")
     bind_p.add_argument("--resume-template", help="Override resume command template")
+    bind_p.add_argument(
+        "--backend",
+        choices=["native", "tmux"],
+        default=detect_default_backend(),
+        help="Resume backend: native agent CLI or tmux session management (default: tmux if inside tmux)",
+    )
+    bind_p.add_argument("--tmux-session-name", help="tmux session name (default: command name)")
     bind_p.set_defaults(func=cmd_bind)
 
     run_p = sub.add_parser("run", help="Run a bound command")

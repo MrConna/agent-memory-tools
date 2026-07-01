@@ -91,6 +91,8 @@ def test_session_bind_run_unbind(tmp_path: Path) -> None:
         str(registry),
         "--bin-dir",
         str(bin_dir),
+        "--backend",
+        "native",
     )
 
     run = run_cli(
@@ -112,6 +114,50 @@ def test_session_bind_run_unbind(tmp_path: Path) -> None:
         "session",
         "unbind",
         "test-cmd",
+        "--registry",
+        str(registry),
+        "--bin-dir",
+        str(bin_dir),
+    )
+    assert unbind.returncode == 0, unbind.stderr
+
+
+def test_session_tmux_backend_dry_run(tmp_path: Path) -> None:
+    registry = tmp_path / "session-commands.json"
+    bin_dir = tmp_path / "bin"
+    run_cli(
+        "session",
+        "bind",
+        "test-tmux",
+        "--runtime",
+        "pi",
+        "--session-id",
+        "019ec97f-f34d-770d-9187-e88abc54c9b8",
+        "--cwd",
+        str(tmp_path),
+        "--registry",
+        str(registry),
+        "--bin-dir",
+        str(bin_dir),
+        "--backend",
+        "tmux",
+    )
+
+    run = run_cli(
+        "session",
+        "run",
+        "test-tmux",
+        "--dry-run",
+        "--registry",
+        str(registry),
+    )
+    assert run.returncode == 0, run.stderr
+    assert "tmux new-session" in run.stdout or "tmux attach" in run.stdout
+
+    unbind = run_cli(
+        "session",
+        "unbind",
+        "test-tmux",
         "--registry",
         str(registry),
         "--bin-dir",
