@@ -7,7 +7,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from . import brain, context, memory
+from . import brain, context, memory, session
 from .installer import init_project
 
 
@@ -33,6 +33,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         _delegate("context", context.main, rest)
     elif command == "brain":
         _delegate("brain", brain.main, rest)
+    elif command == "session":
+        _delegate("session", session.main, rest)
     elif command == "init-project":
         parser = argparse.ArgumentParser(
             prog="agent-memory init-project",
@@ -56,6 +58,7 @@ Usage:
   agent-memory memory <add|search|list|check|prune|export|apply> ...
   agent-memory context <save|restore|list|show> ...
   agent-memory brain <init|register|sync|search|status> ...
+  agent-memory session <scan|bind|run|list|show|unbind> ...
   agent-memory init-project [path] [--force]
 
 Short alias:

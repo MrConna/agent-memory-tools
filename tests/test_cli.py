@@ -72,3 +72,49 @@ def test_context_save_restore(tmp_path: Path) -> None:
     restore = run_cli("context", "restore", cwd=tmp_path)
     assert restore.returncode == 0, restore.stderr
     assert "checkpoint" in restore.stdout
+
+
+def test_session_bind_run_unbind(tmp_path: Path) -> None:
+    registry = tmp_path / "session-commands.json"
+    bin_dir = tmp_path / "bin"
+    run_cli(
+        "session",
+        "bind",
+        "test-cmd",
+        "--runtime",
+        "pi",
+        "--session-id",
+        "019ec97f-f34d-770d-9187-e88abc54c9b8",
+        "--cwd",
+        str(tmp_path),
+        "--registry",
+        str(registry),
+        "--bin-dir",
+        str(bin_dir),
+    )
+
+    run = run_cli(
+        "session",
+        "run",
+        "test-cmd",
+        "--dry-run",
+        "--registry",
+        str(registry),
+    )
+    assert run.returncode == 0, run.stderr
+    assert "pi --session-id" in run.stdout
+
+    list_result = run_cli("session", "list", "--registry", str(registry))
+    assert list_result.returncode == 0, list_result.stderr
+    assert "test-cmd" in list_result.stdout
+
+    unbind = run_cli(
+        "session",
+        "unbind",
+        "test-cmd",
+        "--registry",
+        str(registry),
+        "--bin-dir",
+        str(bin_dir),
+    )
+    assert unbind.returncode == 0, unbind.stderr

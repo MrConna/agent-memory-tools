@@ -1,14 +1,15 @@
 # Agent Memory Tools
 
-Standalone tooling for agent project memory.
+Standalone tooling for agent project memory and session management.
 
 It provides:
 
 - project-local durable learnings in `memory/learnings.jsonl`
 - resumable checkpoints in `memory/contexts.jsonl`
 - optional cross-project semantic search in `~/.brain`
+- **session binding**: stable CLI commands to resume Codex / pi / Claude sessions
 - a unified CLI: `agent-memory`
-- project wrappers: `bin/memory`, `bin/context`, `bin/brain`
+- project wrappers: `bin/memory`, `bin/context`, `bin/brain`, `bin/session`
 - a Codex skill and plugin manifest for agent workflows
 - **pi Extensions**: auto memory management, cross-session messaging, multi-agent delegation
 
@@ -47,12 +48,14 @@ bin/context restore
 agent-memory memory list
 agent-memory context list
 agent-memory brain status
+agent-memory session list
 ```
 
 Short alias:
 
 ```bash
 amt memory search "routing"
+amt session scan --runtime pi --cwd . --limit 5
 ```
 
 Direct entry points are also installed:
@@ -61,6 +64,7 @@ Direct entry points are also installed:
 agent-memory-memory list
 agent-memory-context restore
 agent-memory-brain status
+agent-memory-session bind talkwithai-main --runtime pi --session-id <id> --cwd .
 ```
 
 ## Optional Brain
@@ -74,6 +78,41 @@ agent-memory brain register /path/to/project
 agent-memory brain sync
 agent-memory brain search "agent routing rules"
 ```
+
+## Session Commands
+
+Bind agent sessions to stable commands so you can resume after an accidental close.
+
+```bash
+# Scan recent sessions
+agent-memory session scan --runtime pi --cwd . --limit 5
+agent-memory session scan --runtime codex --limit 5
+
+# Bind a command
+agent-memory session bind talkwithai-main \
+  --runtime pi \
+  --session-id 019ec97f-f34d-770d-9187-e88abc54c9b8 \
+  --cwd /path/to/project
+
+# Resume via the generated command
+talkwithai-main
+
+# Preview what it will run
+agent-memory session run talkwithai-main --dry-run
+
+# Manage bindings
+agent-memory session list
+agent-memory session show talkwithai-main
+agent-memory session unbind talkwithai-main
+```
+
+Supported runtimes:
+
+| Runtime | Resume command |
+|---------|---------------|
+| Codex | `codex resume -C <cwd> [--profile <p>] <thread-id>` |
+| pi | `pi --session-id <session-id>` |
+| Claude | `claude --continue --cwd <cwd> [--name <name>]` |
 
 ## pi Extensions
 
