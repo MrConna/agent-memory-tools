@@ -30,8 +30,14 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "bin" / "memory").exists()
     assert (tmp_path / "bin" / "context").exists()
     assert (tmp_path / "bin" / "brain").exists()
+    assert (tmp_path / "bin" / "session").exists()
     assert (tmp_path / "memory" / "learnings.jsonl").exists()
     assert (tmp_path / "memory" / "contexts.jsonl").exists()
+    assert (tmp_path / "knowledge" / "index.md").exists()
+    assert (tmp_path / "knowledge" / "log.md").exists()
+    assert (tmp_path / "raw" / "README.md").exists()
+    assert (tmp_path / "docs" / "knowledge-management.md").exists()
+    assert (tmp_path / "AGENTS.md").exists()
 
 
 def test_memory_add_and_apply(tmp_path: Path) -> None:
