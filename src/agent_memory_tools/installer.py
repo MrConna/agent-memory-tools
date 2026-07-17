@@ -12,6 +12,7 @@ Project-local memory for coding agents.
 
 - `learnings.jsonl`: durable rules, decisions, bug patterns, and failed approaches.
 - `contexts.jsonl`: resumable checkpoints for interrupted work.
+- `wiki/`: Markdown working knowledge generated from tracked sources.
 
 Typical workflow:
 
@@ -20,6 +21,8 @@ bin/memory apply --query "<task keywords>"
 bin/memory add "Durable lesson" --confidence 8 --source implementation --tags workflow
 bin/context save --description "Checkpoint" --decisions "d1|d2" --remaining "r1|r2"
 bin/context restore
+bin/wiki add-source README.md AGENTS.md
+bin/wiki add-page project-overview --summary "Durable project knowledge for agents." --source README.md
 ```
 
 Do not store secrets, raw logs, ordinary progress updates, or low-confidence guesses as high-confidence memory.
@@ -30,6 +33,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     root = Path(path).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     (root / "memory").mkdir(exist_ok=True)
+    (root / "memory" / "wiki" / "pages").mkdir(parents=True, exist_ok=True)
     (root / "bin").mkdir(exist_ok=True)
 
     for name in ("learnings.jsonl", "contexts.jsonl"):
@@ -41,7 +45,15 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     if force or not readme.exists():
         readme.write_text(MEMORY_README, encoding="utf-8")
 
-    for name in ("memory", "context", "brain"):
+    wiki_index = root / "memory" / "wiki" / "index.md"
+    if force or not wiki_index.exists():
+        wiki_index.write_text("# Wiki Memory\n\nNo wiki pages yet.\n", encoding="utf-8")
+
+    wiki_sources = root / "memory" / "wiki" / "sources.jsonl"
+    if not wiki_sources.exists():
+        wiki_sources.write_text("", encoding="utf-8")
+
+    for name in ("memory", "context", "brain", "wiki"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     # Install pi extensions

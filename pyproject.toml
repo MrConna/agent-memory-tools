@@ -39,6 +39,7 @@ amt = "agent_memory_tools.cli:main"
 agent-memory-memory = "agent_memory_tools.memory:main"
 agent-memory-context = "agent_memory_tools.context:main"
 agent-memory-brain = "agent_memory_tools.brain:main"
+agent-memory-wiki = "agent_memory_tools.wiki:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

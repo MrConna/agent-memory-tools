@@ -6,9 +6,10 @@ It provides:
 
 - project-local durable learnings in `memory/learnings.jsonl`
 - resumable checkpoints in `memory/contexts.jsonl`
+- project-local wiki memory in `memory/wiki/`
 - optional cross-project semantic search in `~/.brain`
 - a unified CLI: `agent-memory`
-- project wrappers: `bin/memory`, `bin/context`, `bin/brain`
+- project wrappers: `bin/memory`, `bin/context`, `bin/brain`, `bin/wiki`
 - a Codex skill and plugin manifest for agent workflows
 - **pi Extensions**: auto memory management, cross-session messaging, multi-agent delegation
 
@@ -39,6 +40,8 @@ bin/memory apply --query "task keywords"
 bin/memory add "Durable lesson" --confidence 8 --source implementation --tags workflow
 bin/context save --description "Implemented feature" --decisions "d1|d2" --remaining "r1|r2"
 bin/context restore
+bin/wiki add-source README.md AGENTS.md
+bin/wiki add-page project-overview --summary "Durable project knowledge for agents." --source README.md
 ```
 
 ## CLI
@@ -46,6 +49,7 @@ bin/context restore
 ```bash
 agent-memory memory list
 agent-memory context list
+agent-memory wiki search "routing"
 agent-memory brain status
 ```
 
@@ -61,7 +65,32 @@ Direct entry points are also installed:
 agent-memory-memory list
 agent-memory-context restore
 agent-memory-brain status
+agent-memory-wiki search "routing"
 ```
+
+## Wiki Memory
+
+Wiki memory is a small Markdown working-knowledge layer for agents. It does not replace
+`learnings.jsonl`, `contexts.jsonl`, or your source documents:
+
+- source documents remain the source of truth
+- `learnings.jsonl` stores durable rules and bug patterns
+- `contexts.jsonl` stores resumable session checkpoints
+- `memory/wiki/` stores human-readable summaries that agents can reuse across sessions
+
+```bash
+agent-memory wiki init
+agent-memory wiki add-source README.md AGENTS.md
+agent-memory wiki add-page project-overview \
+  --summary "This project provides CLI tools for agent memory." \
+  --source README.md
+agent-memory wiki search "agent memory"
+agent-memory wiki sync
+```
+
+Tracked sources are recorded in `memory/wiki/sources.jsonl` with content hashes. When a
+source changes, `wiki sync` marks dependent pages stale so an agent can rebuild only the
+affected knowledge instead of rereading the whole project.
 
 ## Optional Brain
 
