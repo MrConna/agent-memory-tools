@@ -85,6 +85,20 @@ bin/brain sync
 
 ## Handoff
 
+For a long or cross-day task, keep task state separate from durable experience:
+
+1. Write `HANDOFF.md` for a completely fresh session: task, completed work, current
+   blocker, next steps, and failed approaches that must not be repeated.
+2. Use `context save` when a structured, searchable checkpoint is also useful.
+3. Reflect on user corrections and classify each as missing input or faulty reasoning.
+4. Search existing memory before adding only the reusable corrections and effective
+   methods; do not duplicate rules already present in instructions or templates.
+5. Promote a lesson to cross-project Brain only after repeated evidence shows it is
+   general rather than project-specific.
+
+Do not turn `HANDOFF.md` into a memory dump: it records resumable task state, while
+`memory` records durable lessons.
+
 At handoff, explicitly state:
 
 - which memory entries influenced the plan, or that none matched
