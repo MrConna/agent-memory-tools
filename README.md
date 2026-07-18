@@ -92,6 +92,70 @@ Tracked sources are recorded in `memory/wiki/sources.jsonl` with content hashes.
 source changes, `wiki sync` marks dependent pages stale so an agent can rebuild only the
 affected knowledge instead of rereading the whole project.
 
+## Long-Session Closeout: Handoff, Reflection, Memory
+
+长任务、跨天协作或复杂 Agent 工作流结束前，用三层信息解决新会话“失忆”：
+
+| Layer | Stores | Does not store |
+|------|--------|----------------|
+| `HANDOFF.md` | 当前任务、进度、阻塞、下一步、已验证的坑 | 可复用经验的长期堆积 |
+| Reflection | 本轮被纠正的内容、归因、下次如何改进输入 | 普通进度流水账 |
+| `memory` | 经验证、以后仍有用的纠错与方法 | 已有规则、重复条目、低置信猜测 |
+
+### 1. `HANDOFF.md`: hand work to a fresh session
+
+Use this before ending a long session or pausing a complex task overnight:
+
+```text
+这个会话要结束了。请写一份交接文档存到 `HANDOFF.md`：我们在做什么任务、已经完成了什么、当前卡在哪、下一步计划是什么、有哪些踩过的坑绝对不要再踩。写给一个完全没有上下文的新会话看。
+```
+
+Start the next session with:
+
+```text
+请先读取 `HANDOFF.md`，了解项目上下文，再继续推进。
+```
+
+`HANDOFF.md` is the human-readable handoff. `context save` is its structured,
+searchable counterpart; projects may use either or both, but task progress should not
+be mixed into durable learnings.
+
+### 2. Reflection: turn corrections into better next-session input
+
+Run this after the user has corrected important output:
+
+```text
+回顾我们这次协作，你的输出里，哪些内容是我给你纠正的，逐条列出，判断是我给的信息不够导致你判断缺失，还是信息够了但你的判断逻辑有问题，思考如果下次做同样的任务，我在开头多说哪几句话，你就能避开这些问题？复盘结果用表格输出三列，包括我修改的内容，归因，下次的开头指令建议。
+```
+
+The reflection separates missing context from faulty reasoning, producing concrete
+opening instructions instead of a vague retrospective.
+
+### 3. Memory: turn reusable corrections into durable assets
+
+Use this whenever a correction, review order, or questioning technique is likely to
+help again:
+
+```text
+把我们刚才的经验录入错题本/系统记忆，只记纠错与有效方法，错题本里已有类似记录的，更新旧条目，不新建，审查规则或提示词模板里已经明确写了的内容，不重复记录。
+```
+
+With Agent Memory Tools, search before adding so similar entries can be updated or
+left alone instead of duplicated:
+
+```bash
+bin/memory search "<correction or method keywords>"
+bin/memory add "<reusable lesson>" --confidence 8 --source reflection --tags workflow
+```
+
+Recommended order:
+
+1. At long-session closeout, write `HANDOFF.md` with task state only.
+2. When a meaningful deviation is found, run the reflection and review its table.
+3. Record only reusable corrections and effective methods in project memory.
+4. When repeated entries reveal a general rule, promote the smallest stable version
+   to always-on instructions or sync it to the cross-project Brain.
+
 ## Optional Brain
 
 Semantic cross-project search requires the optional dependencies:
