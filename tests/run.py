@@ -40,6 +40,14 @@ def test_init_project_installs_wrappers() -> None:
         require((root / "bin" / "brain").exists(), "brain wrapper missing")
         require((root / "memory" / "learnings.jsonl").exists(), "learnings missing")
         require((root / "memory" / "contexts.jsonl").exists(), "contexts missing")
+        # Cross-agent support files
+        require((root / "CLAUDE.md").exists(), "CLAUDE.md missing")
+        require((root / ".codex" / "CLAUDE.md").exists(), ".codex/CLAUDE.md missing")
+        require((root / ".codex-plugin" / "plugin.json").exists(), "codex plugin missing")
+        require((root / "wiki" / "index.md").exists(), "wiki/index.md missing")
+        require((root / "wiki" / "entities").is_dir(), "wiki/entities missing")
+        require((root / "wiki" / "concepts").is_dir(), "wiki/concepts missing")
+        require((root / "wiki" / "sources").is_dir(), "wiki/sources missing")
 
 
 def test_memory_add_and_apply() -> None:
