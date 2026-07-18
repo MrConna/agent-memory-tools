@@ -31,9 +31,10 @@ agent-memory init-project /path/to/project
 This will:
 1. Create `memory/` and `bin/` in the target project
 2. Create **LLM Wiki scaffolding**: `knowledge/`, `raw/`, `docs/`, and `AGENTS.md`, following the [Karpathy LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern
-3. If **pi** is detected: install extensions (`agent-memory.ts`, `delegate.ts`) to `~/.pi/agent/extensions/`
-4. If **pi** is detected: install `pi-subagents` and `pi-intercom` via `pi install`
-5. If **pi** is not found: skip pi-related steps silently
+3. Create **cross-agent support files** so the same memory workflow works across Claude Code, Codex, and pi (see below)
+4. If **pi** is detected: install extensions (`agent-memory.ts`, `delegate.ts`) to `~/.pi/agent/extensions/`
+5. If **pi** is detected: install `pi-subagents` and `pi-intercom` via `pi install`
+6. If **pi** is not found: skip pi-related steps silently
 
 Then inside that project:
 
@@ -48,6 +49,18 @@ bin/wiki add-page project-overview --summary "Durable project knowledge for agen
 ```
 
 The generated `AGENTS.md` and `docs/knowledge-management.md` describe how to maintain the wiki: ingest sources into `raw/` and `knowledge/`, query against the wiki, and file answers back into it.
+
+## Cross-Agent Support
+
+`init-project` writes one memory workflow that three coding agents can all follow, so learnings and context carry over regardless of which agent is driving:
+
+| Agent | Entry point | Purpose |
+|-------|-------------|---------|
+| **Claude Code** | `CLAUDE.md` | Pre/post-task hook instructions (`memory apply` → work → `memory add` / `context save`) |
+| **Codex** | `.codex/CLAUDE.md` + `.codex-plugin/plugin.json` | Same workflow framed for Codex; the plugin's `skills` path resolves to `.codex/` |
+| **pi** | `~/.pi/agent/extensions/*.ts` | Lifecycle hooks auto-restore context and inject learnings (installed only if pi is present) |
+
+All three call the same `bin/memory`, `bin/context`, and `memory/hooks/*.sh` wrappers, so there is a single source of truth. A cross-agent knowledge base is scaffolded under `wiki/` (`index.md` + `entities/`, `concepts/`, `sources/`) for durable, hand-authored pages that complement the append-only `memory/` store.
 
 ## CLI
 

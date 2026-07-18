@@ -405,7 +405,15 @@ export default function (pi: ExtensionAPI) {
         return typeof m.content === "string" ? m.content : "";
       }).filter(Boolean);
     const description = userTexts.join("; ").slice(0, 200) || "agent session";
-    run(`context save --description "${description.replace(/"/g, '\\"')}" --decisions "" --remaining ""`, cwd);
+    // Write description to temp file to avoid shell escaping issues with special chars
+    const fs = require("fs");
+    const tmpFile = `/tmp/ctx-desc-${process.pid}.txt`;
+    try {
+      fs.writeFileSync(tmpFile, description, "utf-8");
+      run(`context save --description "\$(cat ${tmpFile})" --decisions "" --remaining ""`, cwd);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch {}
+    }
   });
 
   // =====================================================================
