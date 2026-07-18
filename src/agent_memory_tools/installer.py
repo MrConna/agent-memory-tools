@@ -170,7 +170,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
         wiki_sources.write_text("", encoding="utf-8")
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     # Install pi extensions

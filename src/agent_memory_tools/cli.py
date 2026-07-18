@@ -7,15 +7,15 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from . import brain, context, memory, session, wiki
+from . import brain, context, health, memory, session, wiki
 from .installer import init_project
 
 
-def _delegate(label: str, fn: Callable[[], None], argv: Sequence[str]) -> None:
+def _delegate(label: str, fn: Callable[[], int], argv: Sequence[str]) -> int:
     original = sys.argv[:]
     try:
         sys.argv = [f"agent-memory {label}", *argv]
-        fn()
+        return fn()
     finally:
         sys.argv = original
 
@@ -28,15 +28,17 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     command, rest = args[0], args[1:]
     if command == "memory":
-        _delegate("memory", memory.main, rest)
+        sys.exit(_delegate("memory", memory.main, rest))
     elif command == "context":
-        _delegate("context", context.main, rest)
+        sys.exit(_delegate("context", context.main, rest))
     elif command == "brain":
-        _delegate("brain", brain.main, rest)
+        sys.exit(_delegate("brain", brain.main, rest))
     elif command == "session":
-        _delegate("session", session.main, rest)
+        sys.exit(_delegate("session", session.main, rest))
     elif command == "wiki":
-        _delegate("wiki", wiki.main, rest)
+        sys.exit(_delegate("wiki", wiki.main, rest))
+    elif command == "health":
+        sys.exit(_delegate("health", health.main, rest))
     elif command == "init-project":
         parser = argparse.ArgumentParser(
             prog="agent-memory init-project",
@@ -62,6 +64,7 @@ Usage:
   agent-memory wiki <init|add-source|add-page|search|sync> ...
   agent-memory brain <init|register|sync|search|status> ...
   agent-memory session <scan|bind|run|list|show|unbind> ...
+  agent-memory health check [--session-id <id>]
   agent-memory init-project [path] [--force]
 
 Short alias:

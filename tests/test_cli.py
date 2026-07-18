@@ -269,3 +269,15 @@ def test_wiki_rejects_external_sources_by_default(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "outside project" in result.stderr
+
+
+def test_health_check_missing_session(tmp_path: Path) -> None:
+    result = run_cli(
+        "health",
+        "check",
+        "--session-id",
+        "00000000-0000-0000-0000-000000000000",
+        cwd=tmp_path,
+    )
+    assert result.returncode == 1, result.stderr
+    assert "Session file not found" in result.stdout
