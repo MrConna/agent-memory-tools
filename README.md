@@ -69,6 +69,10 @@ learning capture, session handoff, and knowledge maintenance—and four Wiki see
 memory taxonomy, promotion policy, privacy, and the cross-agent lifecycle. Existing files are
 preserved unless `--force` is explicitly supplied.
 
+A fifth `run-verified-agent-loop` skill and Loop Engineering Wiki page define safe autonomous
+iteration: deterministic verification, external state, hard attempt/time/cost caps, and human
+review for high-impact changes.
+
 ## Install
 
 From this checkout:

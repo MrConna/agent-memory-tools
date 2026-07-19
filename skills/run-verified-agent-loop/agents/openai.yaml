@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run Verified Agent Loop"
+  short_description: "Iterate safely with deterministic gates and hard caps"
+  default_prompt: "Run this repetitive measurable task as a bounded loop with deterministic verification."

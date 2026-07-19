@@ -50,9 +50,11 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / ".agy" / "AGENTS.md").exists()
     assert (tmp_path / "memory" / "config.json").exists()
     assert (tmp_path / ".codex" / "skills" / "recall-project-memory" / "SKILL.md").exists()
+    assert (tmp_path / ".codex" / "skills" / "run-verified-agent-loop" / "SKILL.md").exists()
     assert (tmp_path / ".claude" / "skills" / "handoff-session" / "SKILL.md").exists()
     assert (tmp_path / "wiki" / "concepts" / "memory-taxonomy.md").exists()
     assert (tmp_path / "wiki" / "concepts" / "privacy-and-safety.md").exists()
+    assert (tmp_path / "wiki" / "concepts" / "loop-engineering.md").exists()
 
     configured = run_cli("config", "set", "automation.brain_sync_on_end", "false", cwd=tmp_path)
     assert configured.returncode == 0, configured.stderr

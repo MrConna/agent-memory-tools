@@ -173,6 +173,15 @@ WIKI_SUBDIRS = {
 }
 
 COMMON_SKILLS = {
+    "run-verified-agent-loop": """---
+name: run-verified-agent-loop
+description: Run bounded autonomous iteration for repetitive engineering tasks with objective success criteria. Use for test repair, lint cleanup, dependency upgrades, flaky reproduction, benchmarks, or other tasks with deterministic verification.
+---
+
+# Run Verified Agent Loop
+
+Define a deterministic verifier first. Set attempt, time, and cost caps. Persist every result and failed path. Iterate with the smallest informed change. Accept success only from the verifier, never from an Agent's claim. Do not weaken tests or use autonomous loops for subjective or high-risk decisions.
+""",
     "recall-project-memory": """---
 name: recall-project-memory
 description: Retrieve relevant project context before coding, debugging, planning, reviewing, or resuming interrupted work. Use when beginning a non-trivial task or when prior decisions and failed approaches may affect the work.
@@ -219,6 +228,22 @@ Search before creating, verify against current sources, update rather than dupli
 }
 
 COMMON_KNOWLEDGE = {
+    "loop-engineering.md": """# Loop Engineering
+
+Loop Engineering is appropriate when work is repetitive and success can be checked objectively.
+
+## Required structure
+
+1. Discover current state.
+2. Plan the smallest experiment.
+3. Execute it.
+4. Verify with deterministic software such as tests, compilation, lint, or benchmark thresholds.
+5. Persist the result and iterate until success or a hard cap.
+
+Every loop needs an objective verifier, external state, and attempt/time/cost stop conditions. Agent self-assessment is not a verifier. Track cost per accepted change and retain human understanding for high-impact code.
+
+Source: `LoopEngineering_智能体自适应循环_学习笔记.md` (2026-07-19), derived from an @hanakoxbt X thread. Numerical anecdotes and broad industry claims in the source remain unverified and are intentionally excluded. The X status ID supplied separately differs from the note metadata and should be reconciled before stronger attribution.
+""",
     "memory-taxonomy.md": """# Memory Taxonomy
 
 - Observation: factual event captured from agent/tool activity.
