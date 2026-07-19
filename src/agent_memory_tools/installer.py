@@ -111,6 +111,8 @@ Update it as conventions evolve.
 - Use `bin/context save` at important checkpoints or before handing off work.
 - Use `bin/brain search` for cross-project semantic retrieval.
 - Use `bin/session bind` to create stable resume commands for long-running agent sessions.
+- Before every complex task, run `bin/progress start` with outcome, acceptance checks, and a detailed plan; update it with every material result and artifact.
+- Use `bin/workbench` to manage project knowledge, skills, and task progress in the local browser.
 
 ## Knowledge Workflow
 
@@ -128,6 +130,7 @@ Update it as conventions evolve.
 | `raw/` | Immutable source materials |
 | `docs/` | Stable process and convention docs |
 | `bin/` | Project-local agent tool wrappers |
+| `progress/` | Detailed complex-task plans, updates, statuses, and artifact records |
 """
 
 # ---- Memory scaffolding (hooks + index + manifest) -------------------------
@@ -173,6 +176,78 @@ WIKI_SUBDIRS = {
 }
 
 COMMON_SKILLS = {
+    "teach": """---
+name: teach
+description: Teach a topic interactively with a clear learning objective, calibrated explanation, practice, retrieval, and durable learning notes. Use when the user asks to learn, understand, study, practice, or build mastery of a subject.
+---
+
+# Teach
+
+1. Establish the learner's goal, current level, constraints, and a concrete success check. Infer obvious context instead of interviewing unnecessarily.
+2. Explain the smallest useful mental model in plain language. Use one relevant example before adding detail.
+3. Ask the learner to retrieve, predict, explain, or apply the idea. Do not mistake passive agreement for understanding.
+4. Diagnose the response, correct the specific misconception, and adjust difficulty one step at a time.
+5. End with a compact summary, one transfer exercise, and the next useful topic.
+6. When agent-memory is available, retrieve prior learning at the start and save stable goals, misconceptions, and demonstrated mastery at the end. Never store sensitive personal information.
+""",
+    "diagnose-systematically": """---
+name: diagnose-systematically
+description: Diagnose bugs, regressions, failures, and unexpected behavior with reproducible evidence and falsifiable hypotheses. Use before proposing or implementing a non-obvious fix.
+---
+
+# Diagnose Systematically
+
+1. State expected versus actual behavior and reproduce the smallest failing case.
+2. Gather direct evidence from code, logs, tests, configuration, and recent changes.
+3. Rank three to five falsifiable hypotheses. For each, name the observation that would confirm or reject it.
+4. Run the cheapest discriminating check first and update the ranking from evidence.
+5. Identify the root cause before changing behavior. If reproduction is impossible, say what remains uncertain.
+6. Add a regression test, make the smallest causal fix, rerun relevant verification, and remove temporary instrumentation.
+7. Save a reusable bug pattern only after verification.
+""",
+    "develop-test-first": """---
+name: develop-test-first
+description: Implement behavior in small red-green-refactor cycles with tests at public boundaries. Use for features, bug fixes, and behavior-preserving refactors where automated verification is practical.
+---
+
+# Develop Test First
+
+1. Define one observable behavior and choose the narrowest public boundary that proves it.
+2. Write a focused test and run it to confirm it fails for the intended reason.
+3. Implement the smallest coherent change that makes the test pass.
+4. Run the focused test, then the relevant suite. Refactor only while tests remain green.
+5. Repeat vertically for the next behavior; avoid writing a large test batch before implementation.
+6. Prefer real collaborators and stable interfaces. Mock only slow, unsafe, or genuinely external boundaries.
+7. Do not weaken assertions to accommodate an incorrect implementation.
+""",
+    "verify-before-completion": """---
+name: verify-before-completion
+description: Require fresh objective evidence before claiming work is complete, fixed, passing, or ready to ship. Use before final responses, commits, pushes, merge requests, releases, or handoffs.
+---
+
+# Verify Before Completion
+
+1. Translate every completion claim into a command, inspection, or observable acceptance check.
+2. Run the checks after the final change, not from memory or an earlier run.
+3. Read exit status and relevant output; distinguish skipped, partial, flaky, and fully passing checks.
+4. Check the diff and repository status for accidental or missing changes.
+5. Report exactly what was verified and disclose anything not run or still uncertain.
+6. Never treat an agent's confidence, a code review glance, or absence of errors as proof.
+""",
+    "plan-and-execute": """---
+name: plan-and-execute
+description: Turn a multi-step engineering request into a dependency-aware plan, execute it incrementally, and keep status aligned with evidence. Use for work spanning multiple files, systems, risks, or verification stages.
+---
+
+# Plan and Execute
+
+1. Restate the outcome, constraints, acceptance checks, and any assumptions that materially affect scope.
+2. Inspect enough current state to avoid planning against guesses.
+3. Split work into concrete, verifiable steps ordered by dependency and risk. Keep only one step active at a time.
+4. Execute the smallest end-to-end slice, verify it, and update the plan before continuing.
+5. Revise the plan when evidence changes; record blockers and failed approaches instead of silently looping.
+6. Finish with acceptance verification, diff/status review, and a concise handoff of results and residual risk.
+""",
     "run-verified-agent-loop": """---
 name: run-verified-agent-loop
 description: Run bounded autonomous iteration for repetitive engineering tasks with objective success criteria. Use for test repair, lint cleanup, dependency upgrades, flaky reproduction, benchmarks, or other tasks with deterministic verification.
@@ -331,6 +406,10 @@ Use the shared lifecycle for every non-trivial task.
 
 Before work:
 `./bin/lifecycle start "<task keywords>" --agent "<agent name>"`
+
+For every complex task, create the detailed progress record before implementation:
+`./bin/lifecycle start "<task>" --agent "<agent>" --complex --outcome "<outcome>" --acceptance "<checks>" --plan "<detailed plan>"`
+Maintain it during work with `./bin/progress update --message "<update>" --artifact "<path or URL>"`.
 
 Before the final response:
 `./bin/lifecycle end --agent "<agent name>" --summary "<completed work>" --learning "<verified reusable lesson, or empty>" --confidence 7 --tags "<tags>" --decisions "<decisions>" --remaining "<remaining work>" --failed "<failed approaches>"`
@@ -546,6 +625,15 @@ def _merge_claude_hooks(root: Path) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
 
 
+SKILL_TARGET_DIRS = {
+    "codex": Path(".codex/skills"),
+    "claude": Path(".claude/skills"),
+    "pi": Path(".pi/skills"),
+    "agy": Path(".agy/skills"),
+    "gemini": Path(".gemini/skills"),
+}
+
+
 def _install_agent_integrations(root: Path, *, force: bool) -> None:
     skill = """---
 name: agent-memory-lifecycle
@@ -558,9 +646,24 @@ description: Retrieve project memory before work and persist context, handoff, k
     _write_if_missing(root / ".agy" / "AGENTS.md", UNIVERSAL_AGENT_MD.replace("<agent name>", "agy"), force=force)
     _write_if_missing(root / "AGY.md", UNIVERSAL_AGENT_MD.replace("<agent name>", "agy"), force=force)
     _merge_claude_hooks(root)
-    for name, content in COMMON_SKILLS.items():
-        _write_if_missing(root / ".codex" / "skills" / name / "SKILL.md", content, force=force)
-        _write_if_missing(root / ".claude" / "skills" / name / "SKILL.md", content, force=force)
+    from .config import load_config
+
+    skill_config = load_config(root).get("skills", {})
+    if not skill_config.get("install_common", True):
+        return
+    enabled = skill_config.get("enabled", list(COMMON_SKILLS))
+    targets = skill_config.get("targets", list(SKILL_TARGET_DIRS))
+    for target in targets:
+        target_dir = SKILL_TARGET_DIRS.get(str(target))
+        if target_dir is None:
+            print(f"  → unknown skill target {target!r}; skipped")
+            continue
+        for name in enabled:
+            content = COMMON_SKILLS.get(str(name))
+            if content is None:
+                print(f"  → unknown common skill {name!r}; skipped")
+                continue
+            _write_if_missing(root / target_dir / str(name) / "SKILL.md", content, force=force)
 
 
 def _install_common_knowledge(root: Path, *, force: bool) -> None:
@@ -598,6 +701,8 @@ def _install_agy_global_hooks() -> None:
 def install_all(path: str | os.PathLike[str], *, force: bool = False) -> None:
     """One-command project setup plus all detected host integrations."""
     init_project(path, force=force)
+    _install_pi_extensions()
+    _install_pi_packages()
     _install_agy_global_hooks()
     from .codex_watcher import cmd_start
     from .config import load_config
@@ -633,6 +738,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     (root / "knowledge").mkdir(exist_ok=True)
     (root / "docs").mkdir(exist_ok=True)
     (root / "raw").mkdir(exist_ok=True)
+    (root / "progress").mkdir(exist_ok=True)
 
     # Wiki dir (cross-agent knowledge)
     (root / "wiki").mkdir(exist_ok=True)
@@ -666,6 +772,11 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _write_if_missing(root / "knowledge" / "log.md", KNOWLEDGE_LOG_TEMPLATE, force=force)
     _write_if_missing(root / "raw" / "README.md", RAW_README, force=force)
     _write_if_missing(root / "docs" / "knowledge-management.md", DOCS_KNOWLEDGE_MANAGEMENT, force=force)
+    _write_if_missing(
+        root / "progress" / "README.md",
+        "# Task Progress\n\nEvery complex task must create a detailed progress record before implementation. Record the intended outcome, acceptance checks, detailed plan, material updates, decisions, blockers, and every produced file or URL.\n\n```bash\nbin/progress start \"task\" --outcome \"...\" --acceptance \"...\" --plan \"...\"\nbin/progress update --message \"implemented slice\" --artifact \"path/to/output\"\n```\n",
+        force=force,
+    )
 
     # AGENTS.md with project name
     agents = root / "AGENTS.md"
@@ -692,15 +803,11 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _install_codex_bridge(root, force=force)
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     _install_agent_integrations(root, force=force)
     _install_common_knowledge(root, force=force)
-
-    # Install pi extensions + packages
-    _install_pi_extensions()
-    _install_pi_packages()
 
     # Summary
     print()
@@ -711,7 +818,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     if (root / ".agy" / "AGENTS.md").exists():
         print("  🤖 agy          → .agy/AGENTS.md (lifecycle bridge)")
     if _has_pi():
-        print("  🤖 pi           → Extensions installed")
+        print("  🤖 pi           → project skills scaffolded (extensions install via `agent-memory install`)")
     print(f"  ✓ Initialized agent memory + LLM Wiki scaffolding in {root}")
     print("  Try: bin/memory list")
     print('  Try: bin/context save --description "first checkpoint"')

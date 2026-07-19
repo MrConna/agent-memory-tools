@@ -33,6 +33,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "watcher_enabled": True,
         "watch_poll_seconds": 1,
     },
+    "skills": {
+        "install_common": True,
+        "enabled": [
+            "teach",
+            "diagnose-systematically",
+            "develop-test-first",
+            "verify-before-completion",
+            "plan-and-execute",
+            "run-verified-agent-loop",
+            "recall-project-memory",
+            "capture-project-learning",
+            "handoff-session",
+            "maintain-project-knowledge",
+        ],
+        "targets": ["codex", "claude", "pi", "agy", "gemini"],
+    },
 }
 
 

@@ -37,6 +37,9 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "bin" / "lifecycle").exists()
     assert (tmp_path / "bin" / "config").exists()
     assert (tmp_path / "bin" / "codex-watcher").exists()
+    assert (tmp_path / "bin" / "progress").exists()
+    assert (tmp_path / "bin" / "workbench").exists()
+    assert (tmp_path / "progress" / "README.md").exists()
     assert (tmp_path / "memory" / "learnings.jsonl").exists()
     assert (tmp_path / "memory" / "contexts.jsonl").exists()
     assert (tmp_path / "knowledge" / "index.md").exists()
@@ -52,6 +55,12 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / ".codex" / "skills" / "recall-project-memory" / "SKILL.md").exists()
     assert (tmp_path / ".codex" / "skills" / "run-verified-agent-loop" / "SKILL.md").exists()
     assert (tmp_path / ".claude" / "skills" / "handoff-session" / "SKILL.md").exists()
+    for target in (".codex", ".claude", ".pi", ".agy", ".gemini"):
+        assert (tmp_path / target / "skills" / "teach" / "SKILL.md").exists()
+        assert (tmp_path / target / "skills" / "diagnose-systematically" / "SKILL.md").exists()
+        assert (tmp_path / target / "skills" / "develop-test-first" / "SKILL.md").exists()
+        assert (tmp_path / target / "skills" / "verify-before-completion" / "SKILL.md").exists()
+        assert (tmp_path / target / "skills" / "plan-and-execute" / "SKILL.md").exists()
     assert (tmp_path / "wiki" / "concepts" / "memory-taxonomy.md").exists()
     assert (tmp_path / "wiki" / "concepts" / "privacy-and-safety.md").exists()
     assert (tmp_path / "wiki" / "concepts" / "loop-engineering.md").exists()
@@ -61,6 +70,49 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     shown = run_cli("config", "show", cwd=tmp_path)
     assert shown.returncode == 0
     assert json.loads(shown.stdout)["automation"]["brain_sync_on_end"] is False
+
+
+def test_common_skill_install_is_configurable(tmp_path: Path) -> None:
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "memory" / "config.json").write_text(
+        json.dumps({"skills": {"enabled": ["teach"], "targets": ["pi"]}}),
+        encoding="utf-8",
+    )
+    result = run_cli("init-project", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / ".pi" / "skills" / "teach" / "SKILL.md").exists()
+    assert not (tmp_path / ".codex" / "skills" / "teach" / "SKILL.md").exists()
+
+
+def test_complex_lifecycle_creates_and_updates_progress(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    started = run_cli(
+        "lifecycle", "start", "build workbench", "--agent", "codex", "--complex",
+        "--outcome", "Manage project knowledge", "--acceptance", "API returns state",
+        "--plan", "scaffold | implement | verify", cwd=tmp_path,
+    )
+    assert started.returncode == 0, started.stderr
+    records = list((tmp_path / "progress").glob("*.json"))
+    assert len(records) == 1
+    updated = run_cli("progress", "update", "--message", "API implemented", "--artifact", "src/api.py", cwd=tmp_path)
+    assert updated.returncode == 0, updated.stderr
+    data = json.loads(records[0].read_text(encoding="utf-8"))
+    assert "src/api.py" in data["artifacts"]
+    markdown = records[0].with_suffix(".md").read_text(encoding="utf-8")
+    assert "API implemented" in markdown
+    assert "src/api.py" in markdown
+
+    from agent_memory_tools import workbench
+    previous = os.environ.get("PROJECT_ROOT")
+    os.environ["PROJECT_ROOT"] = str(tmp_path)
+    try:
+        snapshot = workbench.state()
+    finally:
+        if previous is None:
+            os.environ.pop("PROJECT_ROOT", None)
+        else:
+            os.environ["PROJECT_ROOT"] = previous
+    assert snapshot["progress"][0]["title"] == "build workbench"
 
 
 def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:

@@ -45,6 +45,8 @@ agent-memory-health = "agent_memory_tools.health:main"
 agent-memory-lifecycle = "agent_memory_tools.automation:main"
 agent-memory-config = "agent_memory_tools.config:main"
 agent-memory-codex-watcher = "agent_memory_tools.codex_watcher:main"
+agent-memory-progress = "agent_memory_tools.progress:main"
+agent-memory-workbench = "agent_memory_tools.workbench:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,0 +1,35 @@
+{
+  "id": "20260719-154627-task",
+  "title": "通用技能库与项目知识工作台",
+  "status": "completed",
+  "outcome": "安装项目时配置化安装通用技能，并提供本地工作台管理知识、技能、任务进度和产物",
+  "acceptance": "五宿主技能目录生成；配置筛选生效；复杂任务生成progress；工作台API可读写；测试通过",
+  "plan": "筛选并改造通用技能；扩展安装器与配置；实现progress；实现本地workbench；测试并推送",
+  "artifacts": [
+    "src/agent_memory_tools/installer.py",
+    "src/agent_memory_tools/progress.py",
+    "src/agent_memory_tools/workbench.py",
+    "skills/teach/SKILL.md",
+    "tests/test_cli.py"
+  ],
+  "events": [
+    {
+      "at": "2026-07-19T15:46:27+08:00",
+      "message": "Progress record created before task execution."
+    },
+    {
+      "at": "2026-07-19T15:46:27+08:00",
+      "message": "已完成通用技能、配置化安装、progress CLI和工作台主体实现"
+    },
+    {
+      "at": "2026-07-19T15:50:00+08:00",
+      "message": "按 Apple Design 原则重构工作台：系统字体、清晰层级、半透明材质、即时按压反馈、响应式与 reduced-motion"
+    },
+    {
+      "at": "2026-07-19T15:50:53+08:00",
+      "message": "14项测试全部通过；5个技能结构校验通过；端到端初始化确认五个宿主均生成teach技能"
+    }
+  ],
+  "created_at": "2026-07-19T15:46:27+08:00",
+  "updated_at": "2026-07-19T15:50:53+08:00"
+}

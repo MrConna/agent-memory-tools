@@ -51,6 +51,8 @@ agent-memory config set local_model.timeout_seconds 20
 agent-memory config set local_model.observation_compression false
 agent-memory config set automation.skill_promotion_min_confidence 10
 agent-memory config set automation.brain_sync_on_end false
+agent-memory config set skills.enabled '["teach","diagnose-systematically"]'
+agent-memory config set skills.targets '["codex","claude","pi","agy","gemini"]'
 ```
 
 Codex has no required native lifecycle hook: one-command install starts a project-scoped
@@ -72,6 +74,28 @@ preserved unless `--force` is explicitly supplied.
 A fifth `run-verified-agent-loop` skill and Loop Engineering Wiki page define safe autonomous
 iteration: deterministic verification, external state, hard attempt/time/cost caps, and human
 review for high-impact changes.
+
+The default portable skill bundle also installs `teach`, `diagnose-systematically`,
+`develop-test-first`, `verify-before-completion`, and `plan-and-execute` into the project-local
+skill directories for Codex, Claude, Pi, Agy, and Gemini. These are dependency-free distilled
+workflows, so installing a project does not copy private configuration or require the original
+skill source directories.
+
+Every complex task must create and maintain a detailed progress record before implementation:
+
+```bash
+bin/lifecycle start "build feature" --agent codex --complex \
+  --outcome "desired result" --acceptance "objective checks" --plan "detailed steps"
+bin/progress update --message "completed API slice" --artifact "src/api.py"
+```
+
+Open the local project workbench to view and add knowledge, skills, progress, and artifacts:
+
+```bash
+bin/workbench
+```
+
+It binds to `127.0.0.1` by default and refuses non-loopback hosts.
 
 ## Install
 

@@ -92,6 +92,10 @@ def cmd_start(args: argparse.Namespace) -> int:
     )
     if observations:
         blocks.append("## Recent matching observations\n" + "\n".join(observations))
+    if args.complex:
+        from .progress import create
+        record = create(args.query, outcome=args.outcome, acceptance=args.acceptance, plan=args.plan)
+        blocks.append(f"## Progress\nCreated `progress/{record['id']}.md` before execution.")
     _append_event("task_start", agent=args.agent, query=args.query)
     print("\n\n".join(blocks) if blocks else "No relevant project memory found.")
     return 0
@@ -224,6 +228,10 @@ def main(argv: list[str] | None = None) -> int:
     start = sub.add_parser("start")
     start.add_argument("query")
     start.add_argument("--agent", default="unknown")
+    start.add_argument("--complex", action="store_true", help="Create the required detailed progress record")
+    start.add_argument("--outcome", default="")
+    start.add_argument("--acceptance", default="")
+    start.add_argument("--plan", default="")
     end = sub.add_parser("end")
     end.add_argument("--agent", default="unknown")
     end.add_argument("--summary", default="Agent task completed")
