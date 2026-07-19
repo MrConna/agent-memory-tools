@@ -15,11 +15,11 @@ ENV = {
 }
 
 
-def run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def run_cli(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "agent_memory_tools.cli", *args],
         cwd=str(cwd or ROOT),
-        env=ENV,
+        env={**ENV, **(env or {})},
         text=True,
         capture_output=True,
         check=False,
@@ -36,6 +36,7 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "bin" / "wiki").exists()
     assert (tmp_path / "bin" / "lifecycle").exists()
     assert (tmp_path / "bin" / "config").exists()
+    assert (tmp_path / "bin" / "codex-watcher").exists()
     assert (tmp_path / "memory" / "learnings.jsonl").exists()
     assert (tmp_path / "memory" / "contexts.jsonl").exists()
     assert (tmp_path / "knowledge" / "index.md").exists()
@@ -48,6 +49,10 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / ".codex" / "skills" / "agent-memory-lifecycle" / "SKILL.md").exists()
     assert (tmp_path / ".agy" / "AGENTS.md").exists()
     assert (tmp_path / "memory" / "config.json").exists()
+    assert (tmp_path / ".codex" / "skills" / "recall-project-memory" / "SKILL.md").exists()
+    assert (tmp_path / ".claude" / "skills" / "handoff-session" / "SKILL.md").exists()
+    assert (tmp_path / "wiki" / "concepts" / "memory-taxonomy.md").exists()
+    assert (tmp_path / "wiki" / "concepts" / "privacy-and-safety.md").exists()
 
     configured = run_cli("config", "set", "automation.brain_sync_on_end", "false", cwd=tmp_path)
     assert configured.returncode == 0, configured.stderr
@@ -77,6 +82,28 @@ def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:
     assert first.returncode == second.returncode == private.returncode == 0
     observations = (tmp_path / "memory" / "observations.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(observations) == 1
+
+
+def test_codex_watcher_ingests_project_transcript(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    fake_home = tmp_path / "home"
+    transcript = fake_home / ".codex" / "sessions" / "2026" / "07" / "19" / "rollout-test.jsonl"
+    transcript.parent.mkdir(parents=True)
+    events = [
+        {"type": "session_meta", "payload": {"cwd": str(tmp_path), "id": "session-1"}},
+        {"type": "event_msg", "payload": {"type": "user_message", "message": "fix auth"}},
+        {"type": "response_item", "payload": {"type": "function_call", "call_id": "c1", "name": "apply_patch", "arguments": "{}"}},
+        {"type": "response_item", "payload": {"type": "function_call_output", "call_id": "c1", "output": "done"}},
+        {"type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": "Auth fixed"}},
+    ]
+    transcript.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+    result = run_cli(
+        "codex-watcher", "once", cwd=tmp_path,
+        env={"HOME": str(fake_home), "PROJECT_ROOT": str(tmp_path)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "apply_patch" in (tmp_path / "memory" / "observations.jsonl").read_text(encoding="utf-8")
+    assert "Auth fixed" in (tmp_path / "HANDOFF.md").read_text(encoding="utf-8")
 
 
 def test_memory_add_and_apply(tmp_path: Path) -> None:

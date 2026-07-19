@@ -7,7 +7,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from . import automation, brain, config, context, health, memory, session, wiki
+from . import automation, brain, codex_watcher, config, context, health, memory, session, wiki
 from .installer import init_project, install_all
 
 
@@ -43,6 +43,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(automation.main(rest))
     elif command == "config":
         sys.exit(config.main(rest))
+    elif command == "codex-watcher":
+        sys.exit(codex_watcher.main(rest))
     elif command == "init-project":
         parser = argparse.ArgumentParser(
             prog="agent-memory init-project",
@@ -77,6 +79,7 @@ Usage:
   agent-memory health check [--session-id <id>]
   agent-memory lifecycle <start|end> ...
   agent-memory config <show|set> ...
+  agent-memory codex-watcher <start|stop|status|once> ...
   agent-memory init-project [path] [--force]
   agent-memory install [path] [--force]
 

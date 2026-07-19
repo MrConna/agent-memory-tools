@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recall Project Memory"
+  short_description: "Retrieve relevant context before project work"
+  default_prompt: "Retrieve the most relevant project memory before starting this task."

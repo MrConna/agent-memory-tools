@@ -1,0 +1,4 @@
+interface:
+  display_name: "Handoff Session"
+  short_description: "Save resumable task state for another session"
+  default_prompt: "Create a concise handoff with progress, decisions, next steps, and failed approaches."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maintain Project Knowledge"
+  short_description: "Curate project concepts and entities safely"
+  default_prompt: "Update the project knowledge base from verified sources and avoid duplicate pages."

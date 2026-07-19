@@ -53,6 +53,22 @@ agent-memory config set automation.skill_promotion_min_confidence 10
 agent-memory config set automation.brain_sync_on_end false
 ```
 
+Codex has no required native lifecycle hook: one-command install starts a project-scoped
+incremental transcript watcher instead. It tails only Codex sessions whose `session_meta.cwd`
+matches the project, persists byte offsets, pairs function calls with outputs, and feeds the
+same observation/end lifecycle used by Claude, agy, and pi.
+
+```bash
+agent-memory codex-watcher status
+agent-memory codex-watcher stop
+agent-memory codex-watcher start
+```
+
+Every initialized project also receives four conservative common skills—memory recall,
+learning capture, session handoff, and knowledge maintenance—and four Wiki seed pages for
+memory taxonomy, promotion policy, privacy, and the cross-agent lifecycle. Existing files are
+preserved unless `--force` is explicitly supplied.
+
 ## Install
 
 From this checkout:

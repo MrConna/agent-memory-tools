@@ -172,6 +172,78 @@ WIKI_SUBDIRS = {
     "sources": "# Sources\n\nRaw ingested material awaiting distillation into `entities/` and `concepts/`.\n",
 }
 
+COMMON_SKILLS = {
+    "recall-project-memory": """---
+name: recall-project-memory
+description: Retrieve relevant project context before coding, debugging, planning, reviewing, or resuming interrupted work. Use when beginning a non-trivial task or when prior decisions and failed approaches may affect the work.
+---
+
+# Recall Project Memory
+
+1. Run `./bin/lifecycle start "<task keywords>" --agent "<host>"`.
+2. Apply only relevant memory and treat current source files as authoritative.
+3. Mention any prior decision that materially changes the plan.
+""",
+    "capture-project-learning": """---
+name: capture-project-learning
+description: Record verified, reusable lessons after implementation, debugging, review, correction, or incident work. Use when a discovery will change how similar future work should be performed.
+---
+
+# Capture Project Learning
+
+1. Search existing memory before adding.
+2. Record one reusable pattern, not progress or raw logs.
+3. Use confidence 7 for verified once, 8 for repeated evidence, and 9+ for stable workflows.
+4. Add tag `skill` only for an executable repeatable workflow.
+5. Never store secrets, private blocks, or unsupported guesses.
+""",
+    "handoff-session": """---
+name: handoff-session
+description: Preserve resumable task state before ending, pausing, compressing, or transferring a long-running session. Use for cross-day work, context limits, agent changes, or unresolved blockers.
+---
+
+# Handoff Session
+
+Run `./bin/lifecycle end` with summary, decisions, remaining work, and failed approaches.
+Verify `HANDOFF.md` is understandable without chat history. Keep task state separate from durable learning.
+""",
+    "maintain-project-knowledge": """---
+name: maintain-project-knowledge
+description: Curate project Wiki concepts, entities, and source-linked summaries after architecture changes, terminology changes, source updates, or repeated memory patterns.
+---
+
+# Maintain Project Knowledge
+
+Search before creating, verify against current sources, update rather than duplicate, keep one topic per page, and run `./bin/wiki sync`. Never promote transient or unverified claims.
+""",
+}
+
+COMMON_KNOWLEDGE = {
+    "memory-taxonomy.md": """# Memory Taxonomy
+
+- Observation: factual event captured from agent/tool activity.
+- Context: resumable task state for the next session.
+- Learning: verified reusable lesson with confidence and provenance.
+- Rule: imperative project constraint promoted from reliable learning.
+- Knowledge: source-backed concept or entity explanation.
+- Skill: repeatable executable workflow, not merely advice.
+
+Keep each fact in the lowest sufficient layer and avoid duplicating the same content across layers.
+""",
+    "promotion-policy.md": """# Promotion Policy
+
+Promote only verified reusable information. Default thresholds are confidence 7 for Rule and Knowledge, and confidence 9 plus an explicit `skill` tag for Skill. Current source files override stale memory. Update existing assets instead of creating synonyms.
+""",
+    "privacy-and-safety.md": """# Privacy and Safety
+
+Never persist secrets, credentials, raw private conversations, or `<private>` blocks. Observations are evidence, not authority. Local-model output is a compression aid and must not independently establish high-impact rules or skills.
+""",
+    "cross-agent-lifecycle.md": """# Cross-Agent Lifecycle
+
+All hosts use the same start, observe, and end lifecycle. Claude and agy use native hooks, pi uses its extension, and Codex uses a project-scoped transcript watcher. Every adapter must degrade without blocking the host.
+""",
+}
+
 CODEX_MD = """# Agent Memory — Codex Instructions
 
 Codex-compatible memory workflow. Same discipline as `CLAUDE.md`, framed for Codex.
@@ -461,6 +533,14 @@ description: Retrieve project memory before work and persist context, handoff, k
     _write_if_missing(root / ".agy" / "AGENTS.md", UNIVERSAL_AGENT_MD.replace("<agent name>", "agy"), force=force)
     _write_if_missing(root / "AGY.md", UNIVERSAL_AGENT_MD.replace("<agent name>", "agy"), force=force)
     _merge_claude_hooks(root)
+    for name, content in COMMON_SKILLS.items():
+        _write_if_missing(root / ".codex" / "skills" / name / "SKILL.md", content, force=force)
+        _write_if_missing(root / ".claude" / "skills" / name / "SKILL.md", content, force=force)
+
+
+def _install_common_knowledge(root: Path, *, force: bool) -> None:
+    for name, content in COMMON_KNOWLEDGE.items():
+        _write_if_missing(root / "wiki" / "concepts" / name, content, force=force)
 
 
 def _install_agy_global_hooks() -> None:
@@ -494,6 +574,19 @@ def install_all(path: str | os.PathLike[str], *, force: bool = False) -> None:
     """One-command project setup plus all detected host integrations."""
     init_project(path, force=force)
     _install_agy_global_hooks()
+    from .codex_watcher import cmd_start
+    from .config import load_config
+    root = Path(path).expanduser().resolve()
+    if load_config(root).get("codex", {}).get("watcher_enabled", True):
+        previous = os.environ.get("PROJECT_ROOT")
+        os.environ["PROJECT_ROOT"] = str(root)
+        try:
+            cmd_start()
+        finally:
+            if previous is None:
+                os.environ.pop("PROJECT_ROOT", None)
+            else:
+                os.environ["PROJECT_ROOT"] = previous
 
 
 # ---- init_project ---------------------------------------------------------
@@ -574,10 +667,11 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _install_codex_bridge(root, force=force)
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     _install_agent_integrations(root, force=force)
+    _install_common_knowledge(root, force=force)
 
     # Install pi extensions + packages
     _install_pi_extensions()

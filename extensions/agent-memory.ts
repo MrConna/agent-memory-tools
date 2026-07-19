@@ -349,9 +349,12 @@ export default function (pi: ExtensionAPI) {
     if (restoredContext) blocks.push("## 上次会话恢复\n" + restoredContext);
     const query = event.prompt?.slice(0, 200) ?? "";
     if (query) {
-      const learnings = run(`memory apply --query "${query.replace(/"/g, '\\"')}"`, cwd);
+      const promptFile = `/tmp/agent-memory-prompt-${process.pid}.txt`;
+      fs.writeFileSync(promptFile, query, "utf8");
+      const learnings = run(`lifecycle start "$(cat ${promptFile})" --agent pi`, cwd);
+      try { fs.unlinkSync(promptFile); } catch {}
       if (learnings && !learnings.startsWith("[error]") && learnings.trim()) {
-        blocks.push("## 相关项目记忆\n" + learnings);
+        blocks.push("## 相关项目上下文\n" + learnings);
       }
     }
     // 注入活跃的任务分配（跨 compaction 持久化）
@@ -404,13 +407,23 @@ export default function (pi: ExtensionAPI) {
         if (Array.isArray(m.content)) return m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join(" ");
         return typeof m.content === "string" ? m.content : "";
       }).filter(Boolean);
-    const description = userTexts.join("; ").slice(0, 200) || "agent session";
+    const description = userTexts.join("; ").slice(0, 200) || "pi session completed";
+    const assistantTexts = messages
+      .filter((m: any) => m.role === "assistant")
+      .map((m: any) => {
+        if (Array.isArray(m.content)) return m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join(" ");
+        return typeof m.content === "string" ? m.content : "";
+      }).filter(Boolean);
     // Write description to temp file to avoid shell escaping issues with special chars
     const fs = require("fs");
     const tmpFile = `/tmp/ctx-desc-${process.pid}.txt`;
     try {
       fs.writeFileSync(tmpFile, description, "utf-8");
-      run(`context save --description "\$(cat ${tmpFile})" --decisions "" --remaining ""`, cwd);
+      const observationFile = `/tmp/agent-observation-${process.pid}.txt`;
+      fs.writeFileSync(observationFile, assistantTexts.join("; ").slice(-4000), "utf-8");
+      run(`lifecycle observe --agent pi --kind response < ${observationFile}`, cwd);
+      run(`lifecycle end --agent pi --summary "\$(cat ${tmpFile})"`, cwd);
+      try { fs.unlinkSync(observationFile); } catch {}
     } finally {
       try { fs.unlinkSync(tmpFile); } catch {}
     }

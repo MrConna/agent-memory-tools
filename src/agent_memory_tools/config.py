@@ -29,6 +29,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "observation_max_chars": 4000,
         "observation_search_limit": 5,
     },
+    "codex": {
+        "watcher_enabled": True,
+        "watch_poll_seconds": 1,
+    },
 }
 
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Capture Project Learning"
+  short_description: "Record verified reusable project lessons"
+  default_prompt: "Capture the verified reusable lessons from this task without storing noise."
