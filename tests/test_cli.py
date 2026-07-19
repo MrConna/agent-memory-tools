@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV = {
     **os.environ,
     "PYTHONPATH": str(ROOT / "src"),
+    "AGENT_MEMORY_LOCAL_MODEL": "off",
 }
 
 
@@ -33,6 +34,8 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "bin" / "brain").exists()
     assert (tmp_path / "bin" / "session").exists()
     assert (tmp_path / "bin" / "wiki").exists()
+    assert (tmp_path / "bin" / "lifecycle").exists()
+    assert (tmp_path / "bin" / "config").exists()
     assert (tmp_path / "memory" / "learnings.jsonl").exists()
     assert (tmp_path / "memory" / "contexts.jsonl").exists()
     assert (tmp_path / "knowledge" / "index.md").exists()
@@ -41,6 +44,39 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "docs" / "knowledge-management.md").exists()
     assert (tmp_path / "AGENTS.md").exists()
     assert (tmp_path / "memory" / "wiki" / "pages").exists()
+    assert (tmp_path / ".claude" / "settings.json").exists()
+    assert (tmp_path / ".codex" / "skills" / "agent-memory-lifecycle" / "SKILL.md").exists()
+    assert (tmp_path / ".agy" / "AGENTS.md").exists()
+    assert (tmp_path / "memory" / "config.json").exists()
+
+    configured = run_cli("config", "set", "automation.brain_sync_on_end", "false", cwd=tmp_path)
+    assert configured.returncode == 0, configured.stderr
+    shown = run_cli("config", "show", cwd=tmp_path)
+    assert shown.returncode == 0
+    assert json.loads(shown.stdout)["automation"]["brain_sync_on_end"] is False
+
+
+def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    result = run_cli(
+        "lifecycle", "end", "--agent", "codex", "--summary", "Implemented lifecycle",
+        "--learning", "Use one lifecycle command across coding agents",
+        "--confidence", "9", "--tags", "workflow,skill", "--decisions", "share the core",
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "HANDOFF.md").exists()
+    assert (tmp_path / "memory" / "lifecycle.jsonl").exists()
+    assert list((tmp_path / "memory" / "rules").glob("*.md"))
+    assert list((tmp_path / "wiki" / "concepts").glob("use-one-lifecycle*.md"))
+    assert list((tmp_path / "skills").glob("*/SKILL.md"))
+
+    first = run_cli("lifecycle", "observe", "--agent", "codex", "--text", "updated auth routing", cwd=tmp_path)
+    second = run_cli("lifecycle", "observe", "--agent", "codex", "--text", "updated auth routing", cwd=tmp_path)
+    private = run_cli("lifecycle", "observe", "--agent", "codex", "--text", "<private>secret</private>", cwd=tmp_path)
+    assert first.returncode == second.returncode == private.returncode == 0
+    observations = (tmp_path / "memory" / "observations.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(observations) == 1
 
 
 def test_memory_add_and_apply(tmp_path: Path) -> None:

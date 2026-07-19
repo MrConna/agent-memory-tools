@@ -13,6 +13,45 @@ It provides:
 - project wrappers: `bin/memory`, `bin/context`, `bin/brain`, `bin/session`, `bin/wiki`
 - a Codex skill and plugin manifest for agent workflows
 - **pi Extensions**: auto memory management, cross-session messaging, multi-agent delegation
+- a shared lifecycle for Codex, Claude Code, agy, and pi
+
+## One-command automation
+
+```bash
+python3 -m pip install -e .
+agent-memory install /path/to/project
+```
+
+The installer creates native Claude hooks, Codex/Claude lifecycle skills, Antigravity
+CLI (`agy`) hooks when detected,
+and pi extensions when pi is installed. All adapters use the same commands:
+
+```bash
+bin/lifecycle start "task keywords" --agent codex
+bin/lifecycle end --agent codex --summary "what changed" \
+  --learning "verified reusable lesson" --confidence 8 --tags workflow \
+  --decisions "key decisions" --remaining "next steps"
+```
+
+Task end saves Context and `HANDOFF.md`, adds an optional verified learning, attempts a
+Brain sync, and promotes confidence-7+ learnings to rules/knowledge. A skill is generated
+only for confidence-9+ learnings explicitly tagged `skill`.
+
+Low-risk compression and session summaries use the `local-gemma` provider from
+`~/.pi/agent/models.json` (for example `gemma-4-12b`). High-impact decisions and durable
+Memory/Knowledge/Skill promotion remain the host agent's responsibility. Set
+`AGENT_MEMORY_LOCAL_MODEL=off` to disable local inference; failures always degrade to
+rule-based storage without blocking the host.
+
+Project policy is stored in `memory/config.json` and can be changed without editing code:
+
+```bash
+agent-memory config show
+agent-memory config set local_model.timeout_seconds 20
+agent-memory config set local_model.observation_compression false
+agent-memory config set automation.skill_promotion_min_confidence 10
+agent-memory config set automation.brain_sync_on_end false
+```
 
 ## Install
 

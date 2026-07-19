@@ -7,8 +7,8 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from . import brain, context, health, memory, session, wiki
-from .installer import init_project
+from . import automation, brain, config, context, health, memory, session, wiki
+from .installer import init_project, install_all
 
 
 def _delegate(label: str, fn: Callable[[], int], argv: Sequence[str]) -> int:
@@ -39,6 +39,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_delegate("wiki", wiki.main, rest))
     elif command == "health":
         sys.exit(_delegate("health", health.main, rest))
+    elif command == "lifecycle":
+        sys.exit(automation.main(rest))
+    elif command == "config":
+        sys.exit(config.main(rest))
     elif command == "init-project":
         parser = argparse.ArgumentParser(
             prog="agent-memory init-project",
@@ -48,6 +52,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         parser.add_argument("--force", action="store_true", help="Overwrite existing bin wrappers")
         parsed = parser.parse_args(rest)
         init_project(parsed.path, force=parsed.force)
+    elif command == "install":
+        parser = argparse.ArgumentParser(prog="agent-memory install")
+        parser.add_argument("path", nargs="?", default=".")
+        parser.add_argument("--force", action="store_true")
+        parsed = parser.parse_args(rest)
+        install_all(parsed.path, force=parsed.force)
     else:
         print(f"Unknown command: {command}", file=sys.stderr)
         _print_help(file=sys.stderr)
@@ -65,7 +75,10 @@ Usage:
   agent-memory brain <init|register|sync|search|status> ...
   agent-memory session <scan|bind|run|list|show|unbind> ...
   agent-memory health check [--session-id <id>]
+  agent-memory lifecycle <start|end> ...
+  agent-memory config <show|set> ...
   agent-memory init-project [path] [--force]
+  agent-memory install [path] [--force]
 
 Short alias:
   amt memory list

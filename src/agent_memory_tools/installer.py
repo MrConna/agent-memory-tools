@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import os
 import json
+import shutil
 from datetime import date
 from pathlib import Path
+
+from .config import write_default
 
 
 MEMORY_README = """# Agent Memory
@@ -225,6 +228,37 @@ After completing a task, record what was learned:
 ```
 """
 
+UNIVERSAL_AGENT_MD = """# Automated Agent Memory Lifecycle
+
+Use the shared lifecycle for every non-trivial task.
+
+Before work:
+`./bin/lifecycle start "<task keywords>" --agent "<agent name>"`
+
+Before the final response:
+`./bin/lifecycle end --agent "<agent name>" --summary "<completed work>" --learning "<verified reusable lesson, or empty>" --confidence 7 --tags "<tags>" --decisions "<decisions>" --remaining "<remaining work>" --failed "<failed approaches>"`
+
+Only verified reusable patterns belong in `--learning`. Use tag `skill` with confidence
+9+ only for a repeatable workflow suitable for promotion. Never store secrets or raw logs.
+"""
+
+CLAUDE_SETTINGS_HOOKS = {
+    "SessionStart": [{"hooks": [{"type": "command", "command": '"$CLAUDE_PROJECT_DIR/memory/hooks/session-start.sh" claude'}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": 'PROJECT_ROOT="$CLAUDE_PROJECT_DIR" agent-memory lifecycle observe --agent claude --kind tool'}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": '"$CLAUDE_PROJECT_DIR/memory/hooks/session-end.sh" claude'}]}],
+}
+
+AGY_HOOKS = {
+    "SessionStart": "agent-memory lifecycle start session --agent agy",
+    "BeforeAgent": "agent-memory lifecycle observe --agent agy --kind prompt",
+    "AfterAgent": "agent-memory lifecycle observe --agent agy --kind response",
+    "BeforeTool": "agent-memory lifecycle observe --agent agy --kind before-tool",
+    "AfterTool": "agent-memory lifecycle observe --agent agy --kind tool",
+    "Notification": "agent-memory lifecycle observe --agent agy --kind notification",
+    "PreCompress": "agent-memory lifecycle end --agent agy --summary 'agy pre-compress checkpoint'",
+    "SessionEnd": "agent-memory lifecycle end --agent agy --summary 'agy session completed'",
+}
+
 HOOKS = {
     "pre-task.sh": r"""#!/usr/bin/env bash
 # pre-task.sh - retrieve memory before tasks
@@ -299,6 +333,19 @@ with open(mp, "w") as f: json.dump(m, f, indent=2); f.write("\n")
 print(f'review #{m["stats"]["self_reviews"]} complete')
 PYEOF
 echo "[self-review] done"
+""",
+    "session-start.sh": r"""#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+AGENT="${1:-unknown}"
+INPUT="$(cat 2>/dev/null || true)"
+PROJECT_ROOT="$ROOT" "$ROOT/bin/lifecycle" start "${INPUT:-session start}" --agent "$AGENT" || true
+""",
+    "session-end.sh": r"""#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+AGENT="${1:-unknown}"
+PROJECT_ROOT="$ROOT" "$ROOT/bin/lifecycle" end --agent "$AGENT" --summary "$AGENT session completed" || true
 """,
 }
 
@@ -376,6 +423,79 @@ def _install_codex_bridge(root: Path, *, force: bool) -> None:
     _write_if_missing(root / ".codex" / "CLAUDE.md", CODEX_MD, force=force)
 
 
+def _merge_claude_hooks(root: Path) -> None:
+    settings_path = root / ".claude" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings: dict[str, object] = {}
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            print("  → invalid .claude/settings.json; native hooks skipped")
+            return
+    hooks = settings.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        print("  → invalid hooks value in .claude/settings.json; native hooks skipped")
+        return
+    for event, entries in CLAUDE_SETTINGS_HOOKS.items():
+        current = hooks.setdefault(event, [])
+        if not isinstance(current, list):
+            continue
+        serialized = json.dumps(current)
+        for entry in entries:
+            command = entry["hooks"][0]["command"]
+            if command not in serialized:
+                current.append(entry)
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+
+
+def _install_agent_integrations(root: Path, *, force: bool) -> None:
+    skill = """---
+name: agent-memory-lifecycle
+description: Retrieve project memory before work and persist context, handoff, knowledge, and verified learnings after work.
+---
+
+""" + UNIVERSAL_AGENT_MD
+    _write_if_missing(root / ".codex" / "skills" / "agent-memory-lifecycle" / "SKILL.md", skill, force=force)
+    _write_if_missing(root / ".claude" / "skills" / "agent-memory-lifecycle" / "SKILL.md", skill, force=force)
+    _write_if_missing(root / ".agy" / "AGENTS.md", UNIVERSAL_AGENT_MD.replace("<agent name>", "agy"), force=force)
+    _write_if_missing(root / "AGY.md", UNIVERSAL_AGENT_MD.replace("<agent name>", "agy"), force=force)
+    _merge_claude_hooks(root)
+
+
+def _install_agy_global_hooks() -> None:
+    if not shutil.which("agy"):
+        print("  → agy not found, skipping Antigravity global hooks")
+        return
+    path = Path.home() / ".gemini" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    settings: dict[str, object] = {}
+    if path.exists():
+        try:
+            settings = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            print("  → invalid ~/.gemini/settings.json; agy hooks skipped")
+            return
+    hooks = settings.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        print("  → invalid hooks in ~/.gemini/settings.json; agy hooks skipped")
+        return
+    for event, command in AGY_HOOKS.items():
+        entries = hooks.setdefault(event, [])
+        if not isinstance(entries, list):
+            continue
+        if command not in json.dumps(entries):
+            entries.append({"hooks": [{"name": "agent-memory", "type": "command", "command": command, "timeout": 30}]})
+    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    print("  ✓ agy global hooks → ~/.gemini/settings.json")
+
+
+def install_all(path: str | os.PathLike[str], *, force: bool = False) -> None:
+    """One-command project setup plus all detected host integrations."""
+    init_project(path, force=force)
+    _install_agy_global_hooks()
+
+
 # ---- init_project ---------------------------------------------------------
 
 def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
@@ -407,6 +527,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
 
     # Memory README
     _write_if_missing(root / "memory" / "README.md", MEMORY_README, force=force)
+    write_default(root, force=force)
 
     # Memory hot cache + index + manifest
     _write_if_missing(root / "memory" / "hot.md", HOT_MD, force=force)
@@ -453,8 +574,10 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _install_codex_bridge(root, force=force)
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki", "health"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config"):
         _write_wrapper(root / "bin" / name, name, force=force)
+
+    _install_agent_integrations(root, force=force)
 
     # Install pi extensions + packages
     _install_pi_extensions()
@@ -466,6 +589,8 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
         print("  🤖 Claude Code  → CLAUDE.md (hooks config)")
     if (root / ".codex-plugin" / "plugin.json").exists():
         print("  🤖 Codex CLI    → .codex-plugin/ + .codex/CLAUDE.md (skill bridge)")
+    if (root / ".agy" / "AGENTS.md").exists():
+        print("  🤖 agy          → .agy/AGENTS.md (lifecycle bridge)")
     if _has_pi():
         print("  🤖 pi           → Extensions installed")
     print(f"  ✓ Initialized agent memory + LLM Wiki scaffolding in {root}")
