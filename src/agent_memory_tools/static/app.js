@@ -57,5 +57,44 @@ async function load() {
 
 byId("search").addEventListener("input", () => { selectedIndex = -1; renderList(); renderDetail(); });
 byId("filter").addEventListener("change", () => { selectedIndex = -1; renderList(); renderDetail(); });
-byId("new-entry").addEventListener("click", () => window.alert("[v0] Entry editor arrives in the full build."));
+const entryDialog = byId("entry-dialog");
+const entryForm = byId("entry-form");
+
+function closeEditor() {
+  entryDialog.close();
+  entryForm.reset();
+  byId("entry-error").textContent = "";
+}
+
+byId("new-entry").addEventListener("click", () => {
+  const kind = activeCategory === "skills" ? "skill" : activeCategory === "progress" ? "progress" : "knowledge";
+  byId("entry-kind").value = kind;
+  entryDialog.showModal();
+  byId("entry-name").focus();
+});
+byId("close-entry").addEventListener("click", closeEditor);
+byId("cancel-entry").addEventListener("click", closeEditor);
+entryDialog.addEventListener("click", (event) => { if (event.target === entryDialog) closeEditor(); });
+entryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = entryForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  submit.textContent = "Adding…";
+  byId("entry-error").textContent = "";
+  try {
+    const response = await fetch("/api/entry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: byId("entry-kind").value, name: byId("entry-name").value, body: byId("entry-body").value }),
+    });
+    if (!response.ok) throw new Error((await response.text()) || "Could not create entry");
+    closeEditor();
+    await load();
+  } catch (error) {
+    byId("entry-error").textContent = error.message;
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Add entry";
+  }
+});
 load().catch((error) => { byId("entry-list").innerHTML = `<div class="empty-detail"><p>${escapeHtml(error.message)}</p></div>`; });
