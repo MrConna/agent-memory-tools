@@ -84,6 +84,36 @@ def test_common_skill_install_is_configurable(tmp_path: Path) -> None:
     assert not (tmp_path / ".codex" / "skills" / "teach" / "SKILL.md").exists()
 
 
+def test_init_uses_local_git_exclude_without_modifying_gitignore(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("dist/\n", encoding="utf-8")
+    result = run_cli("init-project", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    assert gitignore.read_text(encoding="utf-8") == "dist/\n"
+    exclude = Path(subprocess.run(
+        ["git", "-C", str(tmp_path), "rev-parse", "--git-path", "info/exclude"],
+        text=True, capture_output=True, check=True,
+    ).stdout.strip())
+    if not exclude.is_absolute():
+        exclude = tmp_path / exclude
+    text = exclude.read_text(encoding="utf-8")
+    assert text.count("agent-memory-tools generated files >>>") == 1
+    assert "/memory/" in text
+    assert "/.codex/" in text
+    assert "/bin/workbench" in text
+    ignored = subprocess.run(
+        ["git", "-C", str(tmp_path), "check-ignore", "memory/config.json", ".codex/skills/teach/SKILL.md", "bin/workbench"],
+        text=True, capture_output=True, check=False,
+    )
+    assert ignored.returncode == 0, ignored.stderr
+    assert len(ignored.stdout.splitlines()) == 3
+
+    second = run_cli("init-project", str(tmp_path))
+    assert second.returncode == 0, second.stderr
+    assert exclude.read_text(encoding="utf-8").count("agent-memory-tools generated files >>>") == 1
+
+
 def test_complex_lifecycle_creates_and_updates_progress(tmp_path: Path) -> None:
     run_cli("init-project", str(tmp_path))
     started = run_cli(

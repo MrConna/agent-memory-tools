@@ -49,6 +49,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         ],
         "targets": ["codex", "claude", "pi", "agy", "gemini"],
     },
+    "git": {
+        "exclude_generated": True,
+    },
 }
 
 

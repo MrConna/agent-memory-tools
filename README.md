@@ -26,6 +26,12 @@ The installer creates native Claude hooks, Codex/Claude lifecycle skills, Antigr
 CLI (`agy`) hooks when detected,
 and pi extensions when pi is installed. All adapters use the same commands:
 
+Generated project files are excluded from Git by default. Existing repositories use the
+local-only `.git/info/exclude`, so the installer does not modify the project's `.gitignore`.
+If the target is not a Git repository yet, a managed `.gitignore` block is created as a
+fallback; rerun `agent-memory install .` after `git init` to move protection to Git-local
+exclude rules. Disable this behavior with `agent-memory config set git.exclude_generated false`.
+
 ```bash
 bin/lifecycle start "task keywords" --agent codex
 bin/lifecycle end --agent codex --summary "what changed" \

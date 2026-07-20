@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import json
 import shutil
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -633,6 +634,54 @@ SKILL_TARGET_DIRS = {
     "gemini": Path(".gemini/skills"),
 }
 
+GIT_EXCLUDE_START = "# >>> agent-memory-tools generated files >>>"
+GIT_EXCLUDE_END = "# <<< agent-memory-tools generated files <<<"
+GENERATED_GIT_PATTERNS = (
+    "/memory/", "/knowledge/", "/raw/", "/wiki/", "/progress/", "/skills/",
+    "/.codex-plugin/", "/.codex/", "/.claude/", "/.agy/", "/.gemini/", "/.pi/",
+    "/AGENTS.md", "/CLAUDE.md", "/AGY.md", "/HANDOFF.md",
+    "/docs/knowledge-management.md",
+    "/bin/memory", "/bin/context", "/bin/brain", "/bin/session", "/bin/wiki",
+    "/bin/health", "/bin/lifecycle", "/bin/config", "/bin/codex-watcher",
+    "/bin/progress", "/bin/workbench",
+)
+
+
+def _managed_git_block() -> str:
+    return "\n".join((GIT_EXCLUDE_START, *GENERATED_GIT_PATTERNS, GIT_EXCLUDE_END))
+
+
+def _merge_managed_block(path: Path) -> None:
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    start = existing.find(GIT_EXCLUDE_START)
+    end = existing.find(GIT_EXCLUDE_END)
+    if start >= 0 and end >= start:
+        end += len(GIT_EXCLUDE_END)
+        updated = existing[:start].rstrip() + "\n\n" + _managed_git_block() + existing[end:]
+    else:
+        updated = existing.rstrip() + ("\n\n" if existing.strip() else "") + _managed_git_block()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(updated.rstrip() + "\n", encoding="utf-8")
+
+
+def _exclude_generated_from_git(root: Path) -> None:
+    from .config import load_config
+
+    if not load_config(root).get("git", {}).get("exclude_generated", True):
+        return
+    result = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--git-path", "info/exclude"],
+        text=True, capture_output=True, check=False,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        candidate = Path(result.stdout.strip())
+        exclude = candidate if candidate.is_absolute() else root / candidate
+        _merge_managed_block(exclude.resolve())
+        print("  ✓ Git-local exclude → .git/info/exclude")
+    else:
+        _merge_managed_block(root / ".gitignore")
+        print("  ✓ Git ignore fallback → .gitignore (rerun install after `git init` for local-only exclude)")
+
 
 def _install_agent_integrations(root: Path, *, force: bool) -> None:
     skill = """---
@@ -808,6 +857,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
 
     _install_agent_integrations(root, force=force)
     _install_common_knowledge(root, force=force)
+    _exclude_generated_from_git(root)
 
     # Summary
     print()
