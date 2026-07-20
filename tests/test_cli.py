@@ -145,6 +145,15 @@ def test_complex_lifecycle_creates_and_updates_progress(tmp_path: Path) -> None:
     assert snapshot["progress"][0]["title"] == "build workbench"
 
 
+def test_workbench_new_entry_has_real_editor() -> None:
+    source = (ROOT / "web" / "src" / "app.js").read_text(encoding="utf-8")
+    markup = (ROOT / "web" / "src" / "index.html").read_text(encoding="utf-8")
+    assert "window.alert" not in source
+    assert 'id="entry-dialog"' in markup
+    assert 'id="entry-form"' in markup
+    assert 'fetch("/api/entry"' in source
+
+
 def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:
     run_cli("init-project", str(tmp_path))
     result = run_cli(
