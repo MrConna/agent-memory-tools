@@ -152,6 +152,27 @@ def test_workbench_new_entry_has_real_editor() -> None:
     assert 'id="entry-dialog"' in markup
     assert 'id="entry-form"' in markup
     assert 'fetch("/api/entry"' in source
+    assert "contentOf(entry)" in source
+
+
+def test_workbench_state_preserves_full_original_content(tmp_path: Path) -> None:
+    from agent_memory_tools import workbench
+
+    original = "# Long knowledge\n\n" + "full-content-line\n" * 100
+    page = tmp_path / "wiki" / "concepts" / "long.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(original, encoding="utf-8")
+    previous = os.environ.get("PROJECT_ROOT")
+    os.environ["PROJECT_ROOT"] = str(tmp_path)
+    try:
+        entry = workbench.state()["knowledge"][0]
+    finally:
+        if previous is None:
+            os.environ.pop("PROJECT_ROOT", None)
+        else:
+            os.environ["PROJECT_ROOT"] = previous
+    assert entry["content"] == original
+    assert len(entry["summary"]) < len(entry["content"])
 
 
 def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:

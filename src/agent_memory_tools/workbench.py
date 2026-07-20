@@ -31,8 +31,27 @@ def _markdown_entries(directory: Path) -> list[dict[str, str]]:
     for path in sorted(directory.rglob("*.md")) if directory.exists() else []:
         text = path.read_text(encoding="utf-8", errors="replace")
         title = next((line.lstrip("# ") for line in text.splitlines() if line.startswith("#")), path.stem)
-        result.append({"title": title, "path": str(path.relative_to(_root())), "summary": text[:800]})
+        preview = " ".join(
+            line.strip() for line in text.splitlines()
+            if line.strip() and not line.startswith(("#", "---"))
+        )[:240]
+        result.append({
+            "title": title,
+            "path": str(path.relative_to(_root())),
+            "summary": preview,
+            "content": text,
+        })
     return result
+
+
+def _progress_entries() -> list[dict[str, object]]:
+    root = _root()
+    entries = list_records()
+    for entry in entries:
+        markdown = root / "progress" / f"{entry['id']}.md"
+        entry["content"] = markdown.read_text(encoding="utf-8") if markdown.exists() else json.dumps(entry, ensure_ascii=False, indent=2)
+        entry["summary"] = str(entry.get("outcome") or entry.get("plan") or "")[:240]
+    return entries
 
 
 def state() -> dict[str, object]:
@@ -45,7 +64,7 @@ def state() -> dict[str, object]:
         "root": str(root),
         "knowledge": _markdown_entries(root / "wiki"),
         "skills": list(unique.values()),
-        "progress": list_records(),
+        "progress": _progress_entries(),
     }
 
 

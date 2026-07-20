@@ -9,13 +9,14 @@ let selectedIndex = -1;
 const byId = (id) => document.getElementById(id);
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const titleOf = (entry) => entry.title || entry.name || entry.id || "Untitled";
-const bodyOf = (entry) => entry.summary || entry.description || entry.outcome || "No description yet.";
+const previewOf = (entry) => entry.summary || entry.description || entry.outcome || "No description yet.";
+const contentOf = (entry) => entry.content || entry.description || entry.outcome || entry.summary || "No content yet.";
 
 function filteredEntries() {
   const query = byId("search").value.trim().toLowerCase();
   const status = byId("filter").value;
   return (state[activeCategory] || []).filter((entry) => {
-    const text = `${titleOf(entry)} ${bodyOf(entry)} ${entry.path || ""}`.toLowerCase();
+    const text = `${titleOf(entry)} ${contentOf(entry)} ${entry.path || ""}`.toLowerCase();
     return (!query || text.includes(query)) && (status === "all" || entry.status === status);
   });
 }
@@ -28,7 +29,7 @@ function renderNavigation() {
 function renderList() {
   const entries = filteredEntries();
   byId("result-count").textContent = `${entries.length} ${entries.length === 1 ? "item" : "items"}`;
-  byId("entry-list").innerHTML = entries.length ? entries.map((entry, index) => `<button class="entry ${index === selectedIndex ? "active" : ""}" data-index="${index}"><div class="entry-header"><span class="entry-title">${escapeHtml(titleOf(entry))}</span>${entry.status ? `<span class="status">${escapeHtml(entry.status.replaceAll("_", " "))}</span>` : ""}</div><div class="entry-meta">${escapeHtml(entry.path || entry.updated_at || "Project entry")}</div><div class="entry-summary">${escapeHtml(bodyOf(entry))}</div></button>`).join("") : `<div class="empty-detail" style="min-height:20rem"><p>No matching entries.</p></div>`;
+  byId("entry-list").innerHTML = entries.length ? entries.map((entry, index) => `<button class="entry ${index === selectedIndex ? "active" : ""}" data-index="${index}"><div class="entry-header"><span class="entry-title">${escapeHtml(titleOf(entry))}</span>${entry.status ? `<span class="status">${escapeHtml(entry.status.replaceAll("_", " "))}</span>` : ""}</div><div class="entry-meta">${escapeHtml(entry.path || entry.updated_at || "Project entry")}</div><div class="entry-summary">${escapeHtml(previewOf(entry))}</div></button>`).join("") : `<div class="empty-detail" style="min-height:20rem"><p>No matching entries.</p></div>`;
   document.querySelectorAll("[data-index]").forEach((button) => button.addEventListener("click", () => selectEntry(Number(button.dataset.index))));
 }
 
@@ -43,7 +44,7 @@ function selectEntry(index) { selectedIndex = index; renderList(); renderDetail(
 
 function renderDetail() {
   const entry = filteredEntries()[selectedIndex];
-  byId("detail").innerHTML = entry ? `<header><p class="eyebrow">${escapeHtml(activeCategory.toUpperCase())}</p><h2>${escapeHtml(titleOf(entry))}</h2><p class="detail-path">${escapeHtml(entry.path || entry.id || "")}</p></header><div class="detail-body">${escapeHtml(bodyOf(entry))}</div>` : `<div class="empty-detail"><span class="empty-icon" aria-hidden="true">◇</span><h2>Select an entry</h2><p>Choose an item to inspect its content, history, and artifacts.</p></div>`;
+  byId("detail").innerHTML = entry ? `<header><p class="eyebrow">${escapeHtml(activeCategory.toUpperCase())}</p><h2>${escapeHtml(titleOf(entry))}</h2><p class="detail-path">${escapeHtml(entry.path || entry.id || "")}</p></header><div class="detail-body">${escapeHtml(contentOf(entry))}</div>` : `<div class="empty-detail"><span class="empty-icon" aria-hidden="true">◇</span><h2>Select an entry</h2><p>Choose an item to inspect its full original content, history, and artifacts.</p></div>`;
 }
 
 async function load() {
