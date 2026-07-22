@@ -59,6 +59,7 @@ agent-memory config set automation.skill_promotion_min_confidence 10
 agent-memory config set automation.brain_sync_on_end false
 agent-memory config set skills.enabled '["teach","diagnose-systematically"]'
 agent-memory config set skills.targets '["codex","claude","pi","agy","gemini"]'
+agent-memory config set search.lifecycle_top 8
 ```
 
 Codex has no required native lifecycle hook: one-command install starts a project-scoped
@@ -135,6 +136,8 @@ bin/context restore
 bin/session bind my-task --runtime pi --session-id <id> --cwd .
 bin/wiki add-source README.md AGENTS.md
 bin/wiki add-page project-overview --summary "Durable project knowledge for agents." --source README.md
+bin/search rebuild
+bin/search query "authentication migration" --type memory --type context
 ```
 
 The generated `AGENTS.md` and `docs/knowledge-management.md` describe how to maintain the wiki: ingest sources into `raw/` and `knowledge/`, query against the wiki, and file answers back into it.
@@ -159,7 +162,44 @@ agent-memory context list
 agent-memory wiki search "routing"
 agent-memory brain status
 agent-memory session list
+agent-memory search query "routing decision" --top 10
 ```
+
+## Unified Search Index
+
+`bin/search` unifies project Memory, Context, Observations, all Wiki/Knowledge trees,
+Rules, Entities, Progress records, and project Skills. JSONL and Markdown remain the
+source of truth; `memory/index.db` is a disposable SQLite index that can always be rebuilt.
+
+```bash
+bin/search rebuild
+bin/search query "鉴权规范"
+bin/search query "migration rollback" --type memory --confidence-min 7
+bin/search query "unfinished API work" --type context --type progress --top 5
+```
+
+SQLite B-tree indexes accelerate metadata filters and FTS5 provides BM25-ranked full-text
+retrieval. Chinese, Japanese, and Korean text receives additional character and bigram tokens.
+Multi-token matches must cover 60% of normalized query tokens by default, reducing weak partial
+matches while preserving recall across natural phrase boundaries; configure
+`search.lexical_min_coverage` when a project needs stricter or broader matching.
+Before each query, a cheap path/size/mtime signature detects normal source changes. A periodic
+content hash (default: every 300 seconds) also detects rewrites that preserve metadata; set
+`search.deep_freshness_check_seconds` to `0` for strict checking on every query. Rebuilds are
+atomic. `bin/lifecycle start` uses this unified index, so Context
+is selected by task relevance rather than simply restoring the newest record.
+
+Optional semantic recall and hybrid ranking are disabled by default because the multilingual model is large:
+
+```bash
+python3 -m pip install "agent-memory-tools[brain]"
+bin/config set search.semantic_enabled true
+bin/config set search.semantic_weight 0.35
+bin/config set search.semantic_threshold 0.25
+bin/search rebuild
+```
+
+If the model or optional dependencies are unavailable, search safely falls back to FTS5.
 
 Short alias:
 

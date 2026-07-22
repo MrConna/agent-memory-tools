@@ -47,6 +47,7 @@ agent-memory-config = "agent_memory_tools.config:main"
 agent-memory-codex-watcher = "agent_memory_tools.codex_watcher:main"
 agent-memory-progress = "agent_memory_tools.progress:main"
 agent-memory-workbench = "agent_memory_tools.workbench:main"
+agent-memory-search = "agent_memory_tools.search:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

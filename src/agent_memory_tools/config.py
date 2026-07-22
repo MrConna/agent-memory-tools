@@ -52,6 +52,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "git": {
         "exclude_generated": True,
     },
+    "search": {
+        "lifecycle_top": 8,
+        "auto_rebuild": True,
+        "deep_freshness_check_seconds": 300,
+        "lexical_min_coverage": 0.6,
+        "semantic_enabled": False,
+        "semantic_weight": 0.35,
+        "semantic_model": "paraphrase-multilingual-MiniLM-L12-v2",
+        "semantic_threshold": 0.25,
+        "lifecycle_memory_confidence_min": 7,
+        "lifecycle_max_chars_per_entry": 4000,
+    },
 }
 
 

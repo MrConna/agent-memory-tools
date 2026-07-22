@@ -1,0 +1,38 @@
+{
+  "id": "20260722-094739-task",
+  "title": "统一混合检索索引",
+  "status": "completed",
+  "outcome": "为Memory、Knowledge、Context、Observation、Progress和Skill建立可重建的SQLite B-tree与FTS5索引，并接入统一search命令",
+  "acceptance": "源文件仍是事实源；search rebuild幂等；关键词/BM25/过滤可用；中文可检索；Context按任务召回；生命周期使用统一搜索；测试与文档通过",
+  "plan": "审计数据源与CLI；定义索引schema；先写失败测试；实现增量/全量重建；实现混合查询；接入生命周期；文档和端到端验证；推送",
+  "artifacts": [
+    "src/agent_memory_tools/search.py",
+    "README.md",
+    "tests/test_cli.py",
+    "src/agent_memory_tools/automation.py"
+  ],
+  "events": [
+    {
+      "at": "2026-07-22T09:47:39+08:00",
+      "message": "Progress record created before task execution."
+    },
+    {
+      "at": "2026-07-22T10:09:52+08:00",
+      "message": "Implemented SQLite B-tree metadata indexes, FTS5 multilingual lexical search, optional generation-safe semantic ranking, freshness checks, and atomic concurrent rebuilds."
+    },
+    {
+      "at": "2026-07-22T10:09:52+08:00",
+      "message": "Integrated unified search into CLI, installer wrappers, lifecycle context recall, configuration, and documentation."
+    },
+    {
+      "at": "2026-07-22T10:09:52+08:00",
+      "message": "Added regression coverage for source types, Chinese precision, filters, freshness, lifecycle recall, concurrency, validation, and vector generation safety; all 23 tests pass in verified groups."
+    },
+    {
+      "at": "2026-07-22T10:09:52+08:00",
+      "message": "Implementation and independent standards/spec reviews completed; all material findings fixed."
+    }
+  ],
+  "created_at": "2026-07-22T09:47:39+08:00",
+  "updated_at": "2026-07-22T10:09:52+08:00"
+}

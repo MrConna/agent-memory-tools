@@ -45,25 +45,6 @@ def _observation_path() -> Path:
     return _root() / "memory" / "observations.jsonl"
 
 
-def _search_observations(query: str, limit: int = 5) -> list[str]:
-    path = _observation_path()
-    if not path.exists():
-        return []
-    words = query.lower().split()
-    matches: list[tuple[int, dict[str, object]]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        text = str(item.get("text", "")).lower()
-        score = sum(word in text for word in words)
-        if score:
-            matches.append((score, item))
-    matches.sort(key=lambda pair: -pair[0])
-    return [f"#{item.get('id')} {str(item.get('text', ''))[:180]}" for _, item in matches[:limit]]
-
-
 def _recent_observations(limit: int = 30) -> list[str]:
     path = _observation_path()
     if not path.exists():
@@ -79,19 +60,15 @@ def _recent_observations(limit: int = 30) -> list[str]:
 
 def cmd_start(args: argparse.Namespace) -> int:
     blocks: list[str] = []
-    for module, command in (("context", ["restore"]), ("memory", ["apply", "--query", args.query])):
-        code, output = _run(module, *command)
-        if code == 0 and output and "No saved" not in output and "No applicable" not in output:
-            blocks.append(output)
-    code, output = _run("wiki", "search", args.query)
-    if code == 0 and output and "No wiki pages" not in output:
-        blocks.append(output)
-    automation = load_config().get("automation", {})
-    observations = _search_observations(
-        args.query, int(automation.get("observation_search_limit", 5))
+    search_config = load_config().get("search", {})
+    code, output = _run(
+        "search", "query", args.query,
+        "--top", str(search_config.get("lifecycle_top", 8)),
+        "--memory-confidence-min", str(search_config.get("lifecycle_memory_confidence_min", 7)),
+        "--full", "--max-chars", str(search_config.get("lifecycle_max_chars_per_entry", 4000)),
     )
-    if observations:
-        blocks.append("## Recent matching observations\n" + "\n".join(observations))
+    if code == 0 and output and "No indexed entries" not in output:
+        blocks.append(output)
     if args.complex:
         from .progress import create
         record = create(args.query, outcome=args.outcome, acceptance=args.acceptance, plan=args.plan)

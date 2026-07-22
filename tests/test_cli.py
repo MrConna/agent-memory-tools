@@ -39,6 +39,7 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "bin" / "codex-watcher").exists()
     assert (tmp_path / "bin" / "progress").exists()
     assert (tmp_path / "bin" / "workbench").exists()
+    assert (tmp_path / "bin" / "search").exists()
     assert (tmp_path / "progress" / "README.md").exists()
     assert (tmp_path / "memory" / "learnings.jsonl").exists()
     assert (tmp_path / "memory" / "contexts.jsonl").exists()
@@ -240,6 +241,150 @@ def test_memory_add_and_apply(tmp_path: Path) -> None:
     assert apply.returncode == 0, apply.stderr
     assert "Prior learning applied" in apply.stdout
     assert "scoped worktrees" in apply.stdout
+
+
+def test_unified_search_rebuilds_and_finds_project_sources(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    run_cli(
+        "memory", "add", "鉴权中间件必须先于路由初始化",
+        "--confidence", "9", "--tags", "鉴权,架构", cwd=tmp_path,
+    )
+    run_cli(
+        "context", "save", "--description", "正在迁移身份验证模块",
+        "--decisions", "继续兼容旧登录接口", cwd=tmp_path,
+    )
+    concept = tmp_path / "wiki" / "concepts" / "authentication.md"
+    concept.write_text("# 身份验证规范\n\n所有鉴权失败返回统一错误结构。\n", encoding="utf-8")
+    (tmp_path / "wiki" / "concepts" / "deployment.md").write_text(
+        "# 部署规范\n\n上线前检查发布清单。\n", encoding="utf-8",
+    )
+
+    rebuilt = run_cli("search", "rebuild", cwd=tmp_path)
+    assert rebuilt.returncode == 0, rebuilt.stderr
+    assert "Indexed" in rebuilt.stdout
+    assert (tmp_path / "memory" / "index.db").exists()
+
+    result = run_cli("search", "query", "鉴权", "--top", "10", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "鉴权中间件" in result.stdout
+    assert "身份验证规范" in result.stdout
+    precise = run_cli("search", "query", "鉴权规范", "--type", "knowledge", "--top", "1", cwd=tmp_path)
+    assert "身份验证规范" in precise.stdout
+    assert "部署规范" not in precise.stdout
+
+    contexts = run_cli("search", "query", "迁移 身份验证", "--type", "context", cwd=tmp_path)
+    assert contexts.returncode == 0, contexts.stderr
+    assert "正在迁移身份验证模块" in contexts.stdout
+    assert "[context]" in contexts.stdout
+
+    skills = run_cli("search", "query", "learning objective", "--type", "skill", cwd=tmp_path)
+    assert skills.returncode == 0, skills.stderr
+    assert "Teach" in skills.stdout
+    assert skills.stdout.count("[skill] Teach") == 1
+
+
+def test_unified_search_refreshes_changed_sources_and_filters(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    run_cli("search", "rebuild", cwd=tmp_path)
+    run_cli(
+        "memory", "add", "Database migrations require a rollback plan",
+        "--confidence", "9", "--tags", "database", cwd=tmp_path,
+    )
+
+    refreshed = run_cli(
+        "search", "query", "rollback", "--type", "memory",
+        "--confidence-min", "8", cwd=tmp_path,
+    )
+    assert refreshed.returncode == 0, refreshed.stderr
+    assert "Database migrations" in refreshed.stdout
+
+    excluded = run_cli(
+        "search", "query", "rollback", "--type", "memory",
+        "--confidence-min", "10", cwd=tmp_path,
+    )
+    assert excluded.returncode == 0, excluded.stderr
+    assert "No indexed entries" in excluded.stdout
+
+
+def test_lifecycle_start_uses_relevant_unified_context(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    run_cli(
+        "context", "save", "--description", "Authentication migration checkpoint",
+        "--remaining", "replace legacy token validator", cwd=tmp_path,
+    )
+    run_cli(
+        "context", "save", "--description", "Unrelated CSS cleanup",
+        "--remaining", "adjust footer spacing", cwd=tmp_path,
+    )
+    run_cli(
+        "memory", "add", "Legacy token authentication guess",
+        "--confidence", "2", cwd=tmp_path,
+    )
+
+    started = run_cli("lifecycle", "start", "legacy token authentication", "--agent", "codex", cwd=tmp_path)
+    assert started.returncode == 0, started.stderr
+    assert "Authentication migration checkpoint" in started.stdout
+    assert "Unrelated CSS cleanup" not in started.stdout
+    assert "Legacy token authentication guess" not in started.stdout
+    assert "[context]" in started.stdout
+    assert "replace legacy token validator" in started.stdout
+
+
+def test_unified_search_rebuild_is_concurrent_and_validates_limits(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-m", "agent_memory_tools.cli", "search", "rebuild"],
+            cwd=tmp_path, env=ENV, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        for _ in range(4)
+    ]
+    for process in processes:
+        stdout, stderr = process.communicate(timeout=20)
+        assert process.returncode == 0, stdout + stderr
+    query = run_cli("search", "query", "memory", cwd=tmp_path)
+    assert query.returncode == 0, query.stderr
+
+    bad_top = run_cli("search", "query", "memory", "--top", "0", cwd=tmp_path)
+    assert bad_top.returncode == 2
+    assert "greater than zero" in bad_top.stderr
+    bad_confidence = run_cli("search", "query", "memory", "--confidence-min", "-1", cwd=tmp_path)
+    assert bad_confidence.returncode == 2
+    assert "zero or greater" in bad_confidence.stderr
+
+
+def test_unified_search_detects_same_size_preserved_mtime_changes(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    run_cli("config", "set", "search.deep_freshness_check_seconds", "0", cwd=tmp_path)
+    page = tmp_path / "wiki" / "concepts" / "mutable.md"
+    page.write_text("# Mutable\n\noldtoken\n", encoding="utf-8")
+    run_cli("search", "rebuild", cwd=tmp_path)
+    stat = page.stat()
+    page.write_text("# Mutable\n\nnewtoken\n", encoding="utf-8")
+    os.utime(page, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+    result = run_cli("search", "query", "newtoken", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "Mutable" in result.stdout
+
+
+def test_semantic_vector_generation_signature_is_reused(tmp_path: Path) -> None:
+    import numpy as np
+    from agent_memory_tools import search
+
+    previous = os.environ.get("PROJECT_ROOT")
+    os.environ["PROJECT_ROOT"] = str(tmp_path)
+    try:
+        vector = tmp_path / "memory" / "index-vectors.npz"
+        vector.parent.mkdir(parents=True)
+        np.savez(vector, vectors=np.zeros((1, 2)), keys=np.asarray(["memory:1"]), signature=np.asarray("generation-1"))
+        assert search._vector_generation_matches("generation-1") is True
+        assert search._vector_generation_matches("generation-2") is False
+    finally:
+        if previous is None:
+            os.environ.pop("PROJECT_ROOT", None)
+        else:
+            os.environ["PROJECT_ROOT"] = previous
 
 
 def test_context_save_restore(tmp_path: Path) -> None:

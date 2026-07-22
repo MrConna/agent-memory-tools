@@ -114,6 +114,7 @@ Update it as conventions evolve.
 - Use `bin/session bind` to create stable resume commands for long-running agent sessions.
 - Before every complex task, run `bin/progress start` with outcome, acceptance checks, and a detailed plan; update it with every material result and artifact.
 - Use `bin/workbench` to manage project knowledge, skills, and task progress in the local browser.
+- Use `bin/search query "<task>"` for unified indexed retrieval across Memory, Knowledge, Context, Progress, and Skills.
 
 ## Knowledge Workflow
 
@@ -644,6 +645,7 @@ GENERATED_GIT_PATTERNS = (
     "/bin/memory", "/bin/context", "/bin/brain", "/bin/session", "/bin/wiki",
     "/bin/health", "/bin/lifecycle", "/bin/config", "/bin/codex-watcher",
     "/bin/progress", "/bin/workbench",
+    "/bin/search",
 )
 
 
@@ -852,7 +854,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _install_codex_bridge(root, force=force)
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench", "search"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     _install_agent_integrations(root, force=force)
