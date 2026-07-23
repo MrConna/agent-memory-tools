@@ -138,6 +138,7 @@ bin/wiki add-source README.md AGENTS.md
 bin/wiki add-page project-overview --summary "Durable project knowledge for agents." --source README.md
 bin/search rebuild
 bin/search query "authentication migration" --type memory --type context
+bin/patterns status
 ```
 
 The generated `AGENTS.md` and `docs/knowledge-management.md` describe how to maintain the wiki: ingest sources into `raw/` and `knowledge/`, query against the wiki, and file answers back into it.
@@ -200,6 +201,34 @@ bin/search rebuild
 ```
 
 If the model or optional dependencies are unavailable, search safely falls back to FTS5.
+
+## Repeated Workflow Learning
+
+Lifecycle automation keeps a local, auditable candidate ledger in `memory/patterns.json`.
+Repeated tool-action sequences, learnings, and clearly procedural summaries (for example,
+“always run X before Y”) are grouped across tasks and similar wording. By default:
+
+- 3 distinct task events promote the pattern into `wiki/concepts/`.
+- 5 distinct events plus a `workflow`, `process`, `habit`, or `routine` signal promote it
+  into `skills/<pattern>/SKILL.md`.
+- Duplicate evidence from the same source and `<private>` content do not count.
+
+```bash
+bin/patterns status
+bin/patterns record "先运行聚焦测试，然后检查 diff，最后运行完整测试" \
+  --source task-123 --tags workflow
+bin/config set patterns.knowledge_min_occurrences 4
+bin/config set patterns.skill_min_occurrences 7
+bin/config set patterns.enabled false
+```
+
+`lifecycle end` records candidates automatically. Local-model summaries may improve the input,
+but deterministic occurrence evidence—not a model guess—controls promotion. Candidates and
+promoted assets are included in unified search.
+
+A single event never enters Knowledge or Skills merely because its confidence is high. For a
+deliberate expert override, add the explicit `verified` tag; this retains the older confidence
+threshold path while protecting existing files from overwrite.
 
 Short alias:
 

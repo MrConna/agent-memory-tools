@@ -35,6 +35,7 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "bin" / "session").exists()
     assert (tmp_path / "bin" / "wiki").exists()
     assert (tmp_path / "bin" / "lifecycle").exists()
+    assert (tmp_path / "bin" / "patterns").exists()
     assert (tmp_path / "bin" / "config").exists()
     assert (tmp_path / "bin" / "codex-watcher").exists()
     assert (tmp_path / "bin" / "progress").exists()
@@ -181,7 +182,7 @@ def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:
     result = run_cli(
         "lifecycle", "end", "--agent", "codex", "--summary", "Implemented lifecycle",
         "--learning", "Use one lifecycle command across coding agents",
-        "--confidence", "9", "--tags", "workflow,skill", "--decisions", "share the core",
+        "--confidence", "9", "--tags", "workflow,skill,verified", "--decisions", "share the core",
         cwd=tmp_path,
     )
     assert result.returncode == 0, result.stderr
@@ -197,6 +198,136 @@ def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:
     assert first.returncode == second.returncode == private.returncode == 0
     observations = (tmp_path / "memory" / "observations.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(observations) == 1
+
+
+def test_repeated_lifecycle_learning_auto_promotes_to_knowledge(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    learning = "Always run the focused authentication test before the full suite"
+
+    for occurrence in range(1, 4):
+        result = run_cli(
+            "lifecycle", "end", "--agent", f"agent-{occurrence}",
+            "--summary", f"Authentication task {occurrence} completed",
+            "--learning", learning, "--confidence", "5", "--tags", "testing,workflow",
+            cwd=tmp_path,
+        )
+        assert result.returncode == 0, result.stderr
+        pages = list((tmp_path / "wiki" / "concepts").glob("always-run-the-focused*.md"))
+        assert bool(pages) is (occurrence == 3)
+
+    status = run_cli("patterns", "status", cwd=tmp_path)
+    assert status.returncode == 0, status.stderr
+    assert "3 occurrences" in status.stdout
+    assert "knowledge" in status.stdout
+
+
+def test_semantically_similar_pattern_wording_accumulates_as_one_candidate(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    variants = [
+        "Always run focused tests before the full suite",
+        "Always run the focused tests before running the full suite",
+        "Always run focused tests before full suite",
+    ]
+    for index, text in enumerate(variants):
+        run_cli("patterns", "record", text, "--source", f"task-{index}", "--tags", "workflow", cwd=tmp_path)
+    status = run_cli("patterns", "status", cwd=tmp_path)
+    assert status.stdout.count("occurrences") == 1
+    assert "3 occurrences" in status.stdout
+
+
+def test_repeated_workflow_auto_promotes_to_skill_without_duplicate_evidence(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    workflow = "Run focused tests, inspect the diff, then run the full suite before committing"
+
+    duplicate = run_cli(
+        "patterns", "record", workflow, "--source", "task-1", "--tags", "workflow",
+        cwd=tmp_path,
+    )
+    assert duplicate.returncode == 0, duplicate.stderr
+    run_cli("patterns", "record", workflow, "--source", "task-1", "--tags", "workflow", cwd=tmp_path)
+    run_cli("patterns", "record", "<private>personal workflow</private>", "--source", "task-private", cwd=tmp_path)
+    for occurrence in range(2, 6):
+        run_cli(
+            "patterns", "record", workflow, "--source", f"task-{occurrence}", "--tags", "workflow",
+            cwd=tmp_path,
+        )
+
+    skills = list((tmp_path / "skills").glob("run-focused-tests-inspect-the-diff*/SKILL.md"))
+    assert len(skills) == 1
+    skill = skills[0]
+    content = skill.read_text(encoding="utf-8")
+    assert "description:" in content
+    assert "## Workflow" in content
+    assert "5 distinct lifecycle events" in content
+    status = run_cli("patterns", "status", cwd=tmp_path)
+    assert "5 occurrences" in status.stdout
+    assert "skill" in status.stdout
+    assert "personal workflow" not in status.stdout
+
+
+def test_lifecycle_auto_captures_procedural_summaries_but_ignores_generic_completion(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    procedure = "Always inspect generated migrations before running the deployment"
+    for occurrence in range(1, 4):
+        run_cli("lifecycle", "start", f"deployment {occurrence}", "--agent", "codex", cwd=tmp_path)
+        result = run_cli(
+            "lifecycle", "end", "--agent", "codex", "--summary", procedure,
+            cwd=tmp_path,
+        )
+        assert result.returncode == 0, result.stderr
+    run_cli("lifecycle", "end", "--agent", "host-4", "--summary", "Deployment task completed", cwd=tmp_path)
+
+    pages = list((tmp_path / "wiki" / "concepts").glob("always-inspect-generated-migrations*.md"))
+    assert len(pages) == 1
+    status = run_cli("patterns", "status", cwd=tmp_path)
+    assert procedure in status.stdout
+    assert "Deployment task completed" not in status.stdout
+    found = run_cli("search", "query", "generated migrations", "--type", "pattern", cwd=tmp_path)
+    assert found.returncode == 0, found.stderr
+    assert procedure in found.stdout
+
+
+def test_repeated_observed_action_sequence_auto_promotes_without_learning_or_summary_cue(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    for occurrence in range(1, 4):
+        run_cli("lifecycle", "start", f"task {occurrence}", "--agent", "codex", cwd=tmp_path)
+        run_cli("lifecycle", "observe", "--agent", "codex", "--kind", "tool", "--text", "run focused tests", cwd=tmp_path)
+        run_cli("lifecycle", "observe", "--agent", "codex", "--kind", "tool", "--text", "inspect git diff", cwd=tmp_path)
+        ended = run_cli(
+            "lifecycle", "end", "--agent", "codex", "--summary", f"Task {occurrence} completed",
+            cwd=tmp_path,
+        )
+        assert ended.returncode == 0, ended.stderr
+
+    status = run_cli("patterns", "status", cwd=tmp_path)
+    assert "3 occurrences" in status.stdout
+    assert "run focused tests then inspect git diff" in status.stdout
+    assert list((tmp_path / "wiki" / "concepts").glob("run-focused-tests-then-inspect-git-diff*.md"))
+
+
+def test_native_hook_payloads_keep_session_identity_privacy_and_repeated_steps(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    for occurrence in range(3):
+        session_id = f"claude-session-{occurrence}"
+        run_cli(
+            "lifecycle", "start", f"task {occurrence}", "--agent", "claude",
+            "--session-id", session_id, cwd=tmp_path,
+        )
+        for tool_name in ("pytest", "apply_patch", "pytest"):
+            payload = json.dumps({"session_id": session_id, "tool_name": tool_name, "tool_input": {}})
+            run_cli("lifecycle", "observe", "--agent", "claude", "--kind", "tool", "--text", payload, cwd=tmp_path)
+        run_cli(
+            "lifecycle", "observe", "--agent", "claude", "--kind", "tool",
+            "--text", "<PRIVATE reason='secret'>do not store</PRIVATE>", cwd=tmp_path,
+        )
+        run_cli(
+            "lifecycle", "end", "--agent", "claude", "--session-id", session_id,
+            "--summary", f"Task {occurrence} completed", cwd=tmp_path,
+        )
+    status = run_cli("patterns", "status", cwd=tmp_path)
+    assert "pytest then apply_patch then pytest" in status.stdout
+    observations = (tmp_path / "memory" / "observations.jsonl").read_text(encoding="utf-8")
+    assert "do not store" not in observations
 
 
 def test_codex_watcher_ingests_project_transcript(tmp_path: Path) -> None:
@@ -219,6 +350,35 @@ def test_codex_watcher_ingests_project_transcript(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "apply_patch" in (tmp_path / "memory" / "observations.jsonl").read_text(encoding="utf-8")
     assert "Auth fixed" in (tmp_path / "HANDOFF.md").read_text(encoding="utf-8")
+
+
+def test_codex_watcher_learns_repeated_tool_sequence(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    fake_home = tmp_path / "home"
+    transcript = fake_home / ".codex" / "sessions" / "2026" / "07" / "23" / "rollout-pattern.jsonl"
+    transcript.parent.mkdir(parents=True)
+    events: list[dict[str, object]] = [
+        {"type": "session_meta", "payload": {"cwd": str(tmp_path), "id": "codex-session-pattern"}},
+    ]
+    for task in range(3):
+        events.extend([
+            {"type": "event_msg", "payload": {"type": "user_message", "message": f"task {task}"}},
+            {"type": "response_item", "payload": {"type": "function_call", "call_id": f"exec-{task}", "name": "exec_command", "arguments": '{"cmd":"pytest focused"}'}},
+            {"type": "response_item", "payload": {"type": "function_call_output", "call_id": f"exec-{task}", "output": f"{task} passed"}},
+            {"type": "response_item", "payload": {"type": "function_call", "call_id": f"patch-{task}", "name": "apply_patch", "arguments": "{}"}},
+            {"type": "response_item", "payload": {"type": "function_call_output", "call_id": f"patch-{task}", "output": f"patch {task} done"}},
+            {"type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": f"task {task} completed"}},
+        ])
+    transcript.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+    result = run_cli(
+        "codex-watcher", "once", cwd=tmp_path,
+        env={"HOME": str(fake_home), "PROJECT_ROOT": str(tmp_path)},
+    )
+    assert result.returncode == 0, result.stderr
+    status = run_cli("patterns", "status", cwd=tmp_path)
+    assert "3 occurrences" in status.stdout
+    assert "exec_command pytest then apply_patch" in status.stdout
 
 
 def test_memory_add_and_apply(tmp_path: Path) -> None:

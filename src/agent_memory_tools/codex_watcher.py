@@ -60,7 +60,7 @@ def _handle(item: dict[str, Any], session: dict[str, Any]) -> None:
         return
     if outer == "event_msg" and kind == "user_message":
         session["query"] = _payload_text(payload)[:500]
-        automation._append_event("task_start", agent="codex", query=session["query"])
+        automation.begin_task("codex", session["query"], session_id=str(session.get("id", "")))
     elif outer == "response_item" and kind == "function_call":
         call_id = str(payload.get("call_id", ""))
         session.setdefault("calls", {})[call_id] = {
@@ -70,11 +70,14 @@ def _handle(item: dict[str, Any], session: dict[str, Any]) -> None:
         call_id = str(payload.get("call_id", ""))
         call = session.setdefault("calls", {}).pop(call_id, {})
         text = json.dumps({**call, "output": payload.get("output")}, ensure_ascii=False)
-        automation.cmd_observe(argparse.Namespace(agent="codex", kind="tool", text=text))
+        automation.cmd_observe(argparse.Namespace(
+            agent="codex", session_id=str(session.get("id", "")), kind="tool", text=text,
+        ))
     elif outer == "event_msg" and kind == "task_complete":
         summary = str(payload.get("last_agent_message") or "codex session completed")[:4000]
         automation.cmd_end(argparse.Namespace(
-            agent="codex", summary=summary, learning="", confidence=7, tags="general",
+            agent="codex", session_id=str(session.get("id", "")),
+            summary=summary, learning="", confidence=7, tags="general",
             decisions="", remaining="", failed="",
         ))
 

@@ -351,7 +351,7 @@ export default function (pi: ExtensionAPI) {
     if (query) {
       const promptFile = `/tmp/agent-memory-prompt-${process.pid}.txt`;
       fs.writeFileSync(promptFile, query, "utf8");
-      const learnings = run(`lifecycle start "$(cat ${promptFile})" --agent pi`, cwd);
+      const learnings = run(`lifecycle start "$(cat ${promptFile})" --agent pi --session-id "${currentSessionId}"`, cwd);
       try { fs.unlinkSync(promptFile); } catch {}
       if (learnings && !learnings.startsWith("[error]") && learnings.trim()) {
         blocks.push("## 相关项目上下文\n" + learnings);
@@ -395,6 +395,22 @@ export default function (pi: ExtensionAPI) {
     if (blocks.length > 0) return { systemPrompt: event.systemPrompt + "\n\n" + blocks.join("\n\n") };
   });
 
+  // Record canonical tool actions so repeated Pi workflows can become knowledge/skills.
+  pi.on("tool_execution_start", async (event: any, _ctx: any) => {
+    if (!currentSessionId || !event?.toolName) return;
+    const actionFile = `/tmp/agent-memory-tool-${process.pid}.json`;
+    try {
+      fs.writeFileSync(actionFile, JSON.stringify({
+        tool_name: event.toolName,
+        tool_input: event.args || {},
+        session_id: currentSessionId,
+      }), "utf8");
+      run(`lifecycle observe --agent pi --session-id "${currentSessionId}" --kind tool < ${actionFile}`, cwd);
+    } finally {
+      try { fs.unlinkSync(actionFile); } catch {}
+    }
+  });
+
   // -----------------------------------------------------------------------
   // Agent end: 自动保存 context
   // -----------------------------------------------------------------------
@@ -421,8 +437,8 @@ export default function (pi: ExtensionAPI) {
       fs.writeFileSync(tmpFile, description, "utf-8");
       const observationFile = `/tmp/agent-observation-${process.pid}.txt`;
       fs.writeFileSync(observationFile, assistantTexts.join("; ").slice(-4000), "utf-8");
-      run(`lifecycle observe --agent pi --kind response < ${observationFile}`, cwd);
-      run(`lifecycle end --agent pi --summary "\$(cat ${tmpFile})"`, cwd);
+      run(`lifecycle observe --agent pi --session-id "${currentSessionId}" --kind response < ${observationFile}`, cwd);
+      run(`lifecycle end --agent pi --session-id "${currentSessionId}" --summary "\$(cat ${tmpFile})"`, cwd);
       try { fs.unlinkSync(observationFile); } catch {}
     } finally {
       try { fs.unlinkSync(tmpFile); } catch {}

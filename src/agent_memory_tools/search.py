@@ -55,6 +55,7 @@ def _source_files() -> list[Path]:
         root / "memory" / "learnings.jsonl",
         root / "memory" / "contexts.jsonl",
         root / "memory" / "observations.jsonl",
+        root / "memory" / "patterns.json",
         root / "memory" / "config.json",
     ]
     for directory in (
@@ -182,6 +183,31 @@ def _observation_entries() -> Iterable[Entry]:
         )
 
 
+def _pattern_entries() -> Iterable[Entry]:
+    path = _root() / "memory" / "patterns.json"
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(records, dict):
+        return
+    for key, item in records.items():
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text", ""))
+        yield Entry(
+            key=f"pattern:{key}", kind="pattern", title=text[:120] or "Repeated pattern",
+            content=_json_text(item, ("text", "tags", "promoted", "sources")),
+            summary=f"{item.get('occurrences', 0)} occurrences; promoted: {', '.join(item.get('promoted', [])) or 'candidate'}",
+            tags=" ".join(str(tag) for tag in item.get("tags", [])),
+            source="lifecycle", path=_relative(path),
+            confidence=int(item.get("confidence_max", 0) or 0),
+            status="promoted" if item.get("promoted") else "candidate",
+            created_at=str(item.get("first_seen", "")), updated_at=str(item.get("last_seen", "")),
+            metadata=json.dumps(item, ensure_ascii=False),
+        )
+
+
 def _markdown_entries() -> Iterable[Entry]:
     roots = (
         ("knowledge", _root() / "memory" / "wiki" / "pages"),
@@ -243,7 +269,10 @@ def _progress_entries() -> Iterable[Entry]:
 
 
 def collect_entries() -> list[Entry]:
-    return list(_memory_entries()) + list(_context_entries()) + list(_observation_entries()) + list(_markdown_entries()) + list(_progress_entries())
+    return (
+        list(_memory_entries()) + list(_context_entries()) + list(_observation_entries())
+        + list(_pattern_entries()) + list(_markdown_entries()) + list(_progress_entries())
+    )
 
 
 def _search_tokens(text: str) -> str:

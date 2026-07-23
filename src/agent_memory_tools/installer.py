@@ -115,6 +115,7 @@ Update it as conventions evolve.
 - Before every complex task, run `bin/progress start` with outcome, acceptance checks, and a detailed plan; update it with every material result and artifact.
 - Use `bin/workbench` to manage project knowledge, skills, and task progress in the local browser.
 - Use `bin/search query "<task>"` for unified indexed retrieval across Memory, Knowledge, Context, Progress, and Skills.
+- Use `bin/patterns status` to audit repeated workflows that are candidates for automatic Knowledge or Skill promotion.
 
 ## Knowledge Workflow
 
@@ -416,8 +417,9 @@ Maintain it during work with `./bin/progress update --message "<update>" --artif
 Before the final response:
 `./bin/lifecycle end --agent "<agent name>" --summary "<completed work>" --learning "<verified reusable lesson, or empty>" --confidence 7 --tags "<tags>" --decisions "<decisions>" --remaining "<remaining work>" --failed "<failed approaches>"`
 
-Only verified reusable patterns belong in `--learning`. Use tag `skill` with confidence
-9+ only for a repeatable workflow suitable for promotion. Never store secrets or raw logs.
+Only verified reusable patterns belong in `--learning`. Repeated evidence is promoted
+automatically; add tag `verified` only for an intentional single-event expert override. Use tag
+`skill` with confidence 9+ only for a verified repeatable workflow. Never store secrets or raw logs.
 """
 
 CLAUDE_SETTINGS_HOOKS = {
@@ -517,13 +519,21 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AGENT="${1:-unknown}"
 INPUT="$(cat 2>/dev/null || true)"
-PROJECT_ROOT="$ROOT" "$ROOT/bin/lifecycle" start "${INPUT:-session start}" --agent "$AGENT" || true
+SESSION_ID="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin) if not sys.stdin.isatty() else {}; print(d.get("session_id") or d.get("sessionId") or "")' 2>/dev/null || true)"
+QUERY="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("prompt") or d.get("query") or "session start")' 2>/dev/null || printf '%s' 'session start')"
+ARGS=()
+if [ -n "$SESSION_ID" ]; then ARGS=(--session-id "$SESSION_ID"); fi
+PROJECT_ROOT="$ROOT" "$ROOT/bin/lifecycle" start "$QUERY" --agent "$AGENT" "${ARGS[@]}" || true
 """,
     "session-end.sh": r"""#!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AGENT="${1:-unknown}"
-PROJECT_ROOT="$ROOT" "$ROOT/bin/lifecycle" end --agent "$AGENT" --summary "$AGENT session completed" || true
+INPUT="$(cat 2>/dev/null || true)"
+SESSION_ID="$(printf '%s' "$INPUT" | python3 -c 'import json,sys; d=json.load(sys.stdin) if not sys.stdin.isatty() else {}; print(d.get("session_id") or d.get("sessionId") or "")' 2>/dev/null || true)"
+ARGS=()
+if [ -n "$SESSION_ID" ]; then ARGS=(--session-id "$SESSION_ID"); fi
+PROJECT_ROOT="$ROOT" "$ROOT/bin/lifecycle" end --agent "$AGENT" --summary "$AGENT session completed" "${ARGS[@]}" || true
 """,
 }
 
@@ -644,7 +654,7 @@ GENERATED_GIT_PATTERNS = (
     "/docs/knowledge-management.md",
     "/bin/memory", "/bin/context", "/bin/brain", "/bin/session", "/bin/wiki",
     "/bin/health", "/bin/lifecycle", "/bin/config", "/bin/codex-watcher",
-    "/bin/progress", "/bin/workbench",
+    "/bin/progress", "/bin/workbench", "/bin/patterns",
     "/bin/search",
 )
 
@@ -854,7 +864,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _install_codex_bridge(root, force=force)
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench", "search"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench", "search", "patterns"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     _install_agent_integrations(root, force=force)

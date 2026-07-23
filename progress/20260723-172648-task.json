@@ -1,0 +1,38 @@
+{
+  "id": "20260723-172648-task",
+  "title": "重复流程与习惯自动沉淀",
+  "status": "completed",
+  "outcome": "自动识别跨任务重复出现的流程或习惯，按配置沉淀为可审计的知识或可执行 Skill",
+  "acceptance": "重复模式累计且去重；达到知识阈值生成知识；达到更高 Skill 阈值生成 Skill；低频与私密内容不晋升；支持配置与状态查看；生命周期自动触发；测试文档通过",
+  "plan": "审计现有晋升链路；以公共 CLI 写失败测试；实现候选模式账本与规范化匹配；实现知识/Skill 分级晋升；接入 lifecycle end；增加配置、安装说明与工作台可见性；完整测试、评审、提交推送",
+  "artifacts": [
+    "src/agent_memory_tools/patterns.py",
+    "src/agent_memory_tools/automation.py",
+    "extensions/agent-memory.ts",
+    "tests/test_cli.py"
+  ],
+  "events": [
+    {
+      "at": "2026-07-23T17:26:48+08:00",
+      "message": "Progress record created before task execution."
+    },
+    {
+      "at": "2026-07-23T17:48:27+08:00",
+      "message": "Implemented session-aware repeated-pattern learning from explicit learnings, procedural summaries, and canonical tool-action sequences across Codex, Claude, agy, and Pi."
+    },
+    {
+      "at": "2026-07-23T17:48:27+08:00",
+      "message": "Added configurable 3-event Knowledge and 5-event Skill promotion, fuzzy grouping, durable evidence dedupe, privacy rejection, collision-safe assets, unified search, and audit CLI."
+    },
+    {
+      "at": "2026-07-23T17:48:27+08:00",
+      "message": "Added native host adapters and Pi tool-event/session integration."
+    },
+    {
+      "at": "2026-07-23T17:48:27+08:00",
+      "message": "Completed TDD and two-axis review; 30 tests pass in explicit groups and final review found no remaining high-severity issue."
+    }
+  ],
+  "created_at": "2026-07-23T17:26:48+08:00",
+  "updated_at": "2026-07-23T17:48:27+08:00"
+}
