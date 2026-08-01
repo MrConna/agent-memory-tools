@@ -4,6 +4,7 @@ import os
 import json
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 
@@ -36,6 +37,7 @@ def test_init_project_installs_wrappers(tmp_path: Path) -> None:
     assert (tmp_path / "bin" / "wiki").exists()
     assert (tmp_path / "bin" / "lifecycle").exists()
     assert (tmp_path / "bin" / "patterns").exists()
+    assert (tmp_path / "bin" / "governance").exists()
     assert (tmp_path / "bin" / "config").exists()
     assert (tmp_path / "bin" / "codex-watcher").exists()
     assert (tmp_path / "bin" / "progress").exists()
@@ -188,9 +190,122 @@ def test_lifecycle_end_saves_and_promotes(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "HANDOFF.md").exists()
     assert (tmp_path / "memory" / "lifecycle.jsonl").exists()
-    assert list((tmp_path / "memory" / "rules").glob("*.md"))
-    assert list((tmp_path / "wiki" / "concepts").glob("use-one-lifecycle*.md"))
-    assert list((tmp_path / "skills").glob("*/SKILL.md"))
+    assert not list((tmp_path / "memory" / "rules").glob("*.md"))
+    assert not list((tmp_path / "wiki" / "concepts").glob("use-one-lifecycle*.md"))
+    assert not list((tmp_path / "skills").glob("*/SKILL.md"))
+    learning = json.loads((tmp_path / "memory" / "learnings.jsonl").read_text().splitlines()[-1])
+    assert learning["lifecycle_status"] == "candidate"
+    assert learning["scope"] == "project"
+
+
+def test_governance_candidate_can_be_verified_and_graduated(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    run_cli("memory", "add", "Prefer focused tests", "--tags", "verified", cwd=tmp_path)
+    item = json.loads((tmp_path / "memory" / "learnings.jsonl").read_text().splitlines()[0])
+
+    verified = run_cli("governance", "verify", item["id"], "--by", "reviewer", "--targets", "knowledge,skill", cwd=tmp_path)
+    assert verified.returncode == 0, verified.stderr
+    graduated = run_cli("governance", "graduate", item["id"], "--by", "owner", cwd=tmp_path)
+    assert graduated.returncode == 0, graduated.stderr
+
+    current = json.loads((tmp_path / "memory" / "learnings.jsonl").read_text().splitlines()[0])
+    assert current["lifecycle_status"] == "graduated"
+    assert current["scope"] == "cross_project"
+    assert current["desired_targets"] == ["knowledge", "skill"]
+    assert current["provenance"]["verified_by"] == ["reviewer"]
+    assert current["provenance"]["graduated_by"] == ["owner"]
+    assert list((tmp_path / "wiki" / "concepts").glob("prefer-focused-tests*.md"))
+    assert list((tmp_path / "skills").glob("prefer-focused-tests*/SKILL.md"))
+    events = [json.loads(line)["event"] for line in (tmp_path / "memory" / "lifecycle.jsonl").read_text().splitlines()]
+    assert events[-2:] == ["governance_verified", "governance_graduated"]
+
+
+def test_governance_invalid_transition_preserves_learning_bytes(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    run_cli("memory", "add", "Keep writes atomic", cwd=tmp_path)
+    path = tmp_path / "memory" / "learnings.jsonl"
+    item = json.loads(path.read_text().splitlines()[0])
+    before = path.read_bytes()
+    result = run_cli("governance", "graduate", item["id"], "--by", "owner", cwd=tmp_path)
+    assert result.returncode != 0
+    assert path.read_bytes() == before
+
+
+def test_governance_legacy_requires_migration_and_targets_are_validated(tmp_path: Path) -> None:
+    path = tmp_path / "memory" / "learnings.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"id": "legacy", "pattern": "old"}) + "\n")
+    before = path.read_bytes()
+    blocked = run_cli("governance", "reject", "legacy", "--by", "owner", "--reason", "old", cwd=tmp_path)
+    assert blocked.returncode != 0
+    assert path.read_bytes() == before
+    run_cli("governance", "migrate", "--apply", cwd=tmp_path)
+    invalid = run_cli("governance", "graduate", "legacy", "--by", "owner", cwd=tmp_path)
+    assert invalid.returncode == 0  # migrated legacy is project_verified
+
+    run_cli("memory", "add", "new", cwd=tmp_path)
+    current = json.loads(path.read_text().splitlines()[-1])
+    before = path.read_bytes()
+    invalid = run_cli("governance", "verify", current["id"], "--by", "owner", "--targets", "database", cwd=tmp_path)
+    assert invalid.returncode != 0
+    assert path.read_bytes() == before
+
+
+def test_concurrent_memory_rmw_preserves_governance_and_reference_updates(tmp_path: Path) -> None:
+    run_cli("memory", "add", "Concurrent governance memory", "--confidence", "9", cwd=tmp_path)
+    path = tmp_path / "memory" / "learnings.jsonl"
+    item = json.loads(path.read_text().splitlines()[0])
+    searches = [
+        subprocess.Popen(
+            [sys.executable, "-m", "agent_memory_tools.cli", "memory", "search", "concurrent"],
+            cwd=tmp_path, env=ENV, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        for _ in range(6)
+    ]
+    verified = run_cli("governance", "verify", item["id"], "--by", "reviewer", cwd=tmp_path)
+    assert verified.returncode == 0, verified.stderr
+    assert all(process.wait(timeout=20) == 0 for process in searches)
+    current = json.loads(path.read_text().splitlines()[0])
+    assert current["lifecycle_status"] == "project_verified"
+    assert current["provenance"]["verified_by"] == ["reviewer"]
+    assert current["reference_count"] == 6
+
+
+def test_brain_sync_evicts_withdrawn_learning(tmp_path: Path, monkeypatch) -> None:
+    from argparse import Namespace
+    from agent_memory_tools import brain
+
+    brain_home = tmp_path / "brain"
+    monkeypatch.setattr(brain, "BRAIN_HOME", brain_home)
+    monkeypatch.setattr(brain, "CONFIG_FILE", brain_home / "config.json")
+    monkeypatch.setattr(brain, "INDEX_FILE", brain_home / "index.jsonl")
+    monkeypatch.setattr(brain, "EMBEDDINGS_FILE", brain_home / "embeddings.npy")
+    brain._save_config({"model": "fake", "projects": [str(tmp_path)]})
+    run_cli("memory", "add", "shared", cwd=tmp_path)
+    item = json.loads((tmp_path / "memory" / "learnings.jsonl").read_text().splitlines()[0])
+    run_cli("governance", "verify", item["id"], "--by", "reviewer", cwd=tmp_path)
+    run_cli("governance", "graduate", item["id"], "--by", "owner", cwd=tmp_path)
+
+    class Embedding:
+        shape = (1, 1)
+        def astype(self, _kind):
+            return self
+    class Model:
+        def __init__(self, _name):
+            pass
+        def encode(self, *_args, **_kwargs):
+            return Embedding()
+    fake_numpy = types.SimpleNamespace(float32="float32", save=lambda path, _value: Path(path).write_bytes(b"embedding"))
+    monkeypatch.setitem(sys.modules, "numpy", fake_numpy)
+    monkeypatch.setitem(sys.modules, "sentence_transformers", types.SimpleNamespace(SentenceTransformer=Model))
+    brain.cmd_sync(Namespace())
+    assert len(brain._load_index()) == 1
+
+    run_cli("governance", "withdraw", item["id"], "--by", "owner", "--reason", "superseded", cwd=tmp_path)
+    brain.cmd_sync(Namespace())
+    assert brain._load_index() == []
+    assert not brain.EMBEDDINGS_FILE.exists()
+    assert brain._load_config()["indexed_count"] == 0
 
     first = run_cli("lifecycle", "observe", "--agent", "codex", "--text", "updated auth routing", cwd=tmp_path)
     second = run_cli("lifecycle", "observe", "--agent", "codex", "--text", "updated auth routing", cwd=tmp_path)
@@ -219,6 +334,34 @@ def test_repeated_lifecycle_learning_auto_promotes_to_knowledge(tmp_path: Path) 
     assert status.returncode == 0, status.stderr
     assert "3 occurrences" in status.stdout
     assert "knowledge" in status.stdout
+
+
+def test_rejected_learning_is_not_reverified_by_repeated_pattern(tmp_path: Path) -> None:
+    run_cli("init-project", str(tmp_path))
+    text = "Always validate generated schemas before publishing them"
+    run_cli("lifecycle", "end", "--agent", "agent-1", "--learning", text, "--tags", "workflow", cwd=tmp_path)
+    item = json.loads((tmp_path / "memory" / "learnings.jsonl").read_text().splitlines()[0])
+    run_cli("governance", "reject", item["id"], "--by", "reviewer", "--reason", "unsafe", cwd=tmp_path)
+    for number in (2, 3):
+        run_cli("lifecycle", "end", "--agent", f"agent-{number}", "--learning", text, "--tags", "workflow", cwd=tmp_path)
+    current = json.loads((tmp_path / "memory" / "learnings.jsonl").read_text().splitlines()[0])
+    assert current["lifecycle_status"] == "rejected"
+    assert not list((tmp_path / "wiki" / "concepts").glob("always-validate-generated*.md"))
+    events = [json.loads(line)["event"] for line in (tmp_path / "memory" / "lifecycle.jsonl").read_text().splitlines()]
+    assert events.count("governance_rejected") == 1
+    assert "governance_verified" not in events
+
+
+def test_malformed_learnings_prevent_pattern_asset_writes(tmp_path: Path) -> None:
+    path = tmp_path / "memory" / "learnings.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("{broken\n")
+    text = "Always validate memory before creating knowledge assets"
+    for number in (1, 2):
+        assert run_cli("patterns", "record", text, "--source", f"task-{number}", cwd=tmp_path).returncode == 0
+    third = run_cli("patterns", "record", text, "--source", "task-3", cwd=tmp_path)
+    assert third.returncode != 0
+    assert not list((tmp_path / "wiki" / "concepts").glob("*.md"))
 
 
 def test_semantically_similar_pattern_wording_accumulates_as_one_candidate(tmp_path: Path) -> None:

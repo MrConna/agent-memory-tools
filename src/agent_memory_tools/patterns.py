@@ -168,16 +168,21 @@ def _record_locked(text: str, *, source: str, tags: str, confidence: int) -> dic
     item["confidence_max"] = max(int(item.get("confidence_max", 0)), confidence)
     item["last_seen"] = datetime.now(timezone.utc).isoformat()
     promoted = list(item.get("promoted", []))
-    if int(item["occurrences"]) >= int(config.get("knowledge_min_occurrences", 3)) and "knowledge" not in promoted:
-        item["knowledge_path"] = _promote_knowledge(item)
-        promoted.append("knowledge")
     signal_tags = {str(tag).casefold() for tag in config.get("skill_signal_tags", [])}
     item_tags = {str(tag).casefold() for tag in item.get("tags", [])}
-    if (
-        int(item["occurrences"]) >= int(config.get("skill_min_occurrences", 5))
-        and signal_tags & item_tags
-        and "skill" not in promoted
-    ):
+    wants_knowledge = int(item["occurrences"]) >= int(config.get("knowledge_min_occurrences", 3))
+    wants_skill = int(item["occurrences"]) >= int(config.get("skill_min_occurrences", 5)) and bool(signal_tags & item_tags)
+    targets = [name for name, wanted in (("knowledge", wants_knowledge), ("skill", wants_skill)) if wanted]
+    allowed = True
+    if targets:
+        from .governance import verify_repeated_pattern
+        allowed = verify_repeated_pattern(
+            str(item["text"]), evidence=[str(value) for value in item.get("sources", [])], targets=targets,
+        )
+    if allowed and wants_knowledge and "knowledge" not in promoted:
+        item["knowledge_path"] = _promote_knowledge(item)
+        promoted.append("knowledge")
+    if allowed and wants_skill and "skill" not in promoted:
         item["skill_path"] = _promote_skill(item)
         promoted.append("skill")
     item["promoted"] = promoted

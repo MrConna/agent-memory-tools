@@ -39,9 +39,9 @@ bin/lifecycle end --agent codex --summary "what changed" \
   --decisions "key decisions" --remaining "next steps"
 ```
 
-Task end saves Context and `HANDOFF.md`, adds an optional verified learning, attempts a
-Brain sync, and promotes confidence-7+ learnings to rules/knowledge. A skill is generated
-only for confidence-9+ learnings explicitly tagged `skill`.
+Task end saves Context and `HANDOFF.md`, adds an optional learning as a governance candidate,
+and attempts a Brain sync. A single high-confidence or `verified` event is never promoted
+directly into a rule, Knowledge page, Skill, or cross-project Brain entry.
 
 Low-risk compression and session summaries use the `local-gemma` provider from
 `~/.pi/agent/models.json` (for example `gemma-4-12b`). High-impact decisions and durable
@@ -226,9 +226,30 @@ bin/config set patterns.enabled false
 but deterministic occurrence evidence—not a model guess—controls promotion. Candidates and
 promoted assets are included in unified search.
 
-A single event never enters Knowledge or Skills merely because its confidence is high. For a
-deliberate expert override, add the explicit `verified` tag; this retains the older confidence
-threshold path while protecting existing files from overwrite.
+A single event never enters Knowledge or Skills merely because its confidence is high or it has
+a `verified` tag. Repeated evidence can make it `project_verified` and generate project-local
+assets, but explicit graduation is required before Brain shares it across projects.
+
+## Knowledge Governance
+
+Governance metadata lives beside each learning in `memory/learnings.jsonl`; there is no second
+source of truth. New learnings begin as `candidate` records in project scope. Review and publish
+them explicitly:
+
+```bash
+agent-memory governance status --status candidate
+agent-memory governance verify <id> --by reviewer --targets knowledge,skill
+agent-memory governance graduate <id> --by owner
+agent-memory governance reject <id> --by reviewer --reason "insufficient evidence"
+agent-memory governance withdraw <id> --by owner --reason "superseded"
+agent-memory governance migrate          # inspect legacy count
+agent-memory governance migrate --apply  # mark legacy records project_verified
+```
+
+`verify` keeps knowledge project-local. `graduate` is only valid after verification and changes
+scope to `cross_project`. Brain sync consumes only non-stale records in that graduated scope.
+Every transition appends an audit event to `memory/lifecycle.jsonl`. Legacy records remain
+readable locally and are excluded from Brain until explicitly migrated and graduated.
 
 Short alias:
 

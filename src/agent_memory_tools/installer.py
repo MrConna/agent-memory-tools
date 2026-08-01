@@ -654,7 +654,7 @@ GENERATED_GIT_PATTERNS = (
     "/docs/knowledge-management.md",
     "/bin/memory", "/bin/context", "/bin/brain", "/bin/session", "/bin/wiki",
     "/bin/health", "/bin/lifecycle", "/bin/config", "/bin/codex-watcher",
-    "/bin/progress", "/bin/workbench", "/bin/patterns",
+    "/bin/progress", "/bin/workbench", "/bin/patterns", "/bin/governance",
     "/bin/search",
 )
 
@@ -864,7 +864,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _install_codex_bridge(root, force=force)
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench", "search", "patterns"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench", "search", "patterns", "governance"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     _install_agent_integrations(root, force=force)

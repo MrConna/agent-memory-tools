@@ -36,9 +36,12 @@ import os
 import re
 import sys
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from .learning_store import atomic_write, locked
 
 
 # ---------------------------------------------------------------------------
@@ -78,16 +81,23 @@ def _load_all(path: Path) -> list[dict]:
 
 
 def _save_all(path: Path, records: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    atomic_write(path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records))
+
+
+def _mutate_all(path: Path, mutate: Callable[[list[dict]], None]) -> list[dict]:
+    """Reload, mutate, and atomically replace learnings under the shared lock."""
+    with locked(path):
+        records = _load_all(path)
+        mutate(records)
+        _save_all(path, records)
+        return records
 
 
 def _append(path: Path, record: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    with locked(path):
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +120,8 @@ def cmd_add(args: argparse.Namespace) -> None:
         "reference_count": 0,
         "stale": False,
     }
+    from .governance import governed
+    record = governed(record)
     _append(path, record)
     print(f"✓ Added [{record['confidence']}/10] {record['pattern'][:80]}")
     print(f"  id={record['id']} tags={record['tags']}")
@@ -149,7 +161,15 @@ def cmd_search(args: argparse.Namespace) -> None:
         r["last_referenced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         r["reference_count"] = r.get("reference_count", 0) + 1
         updated_ids.add(r["id"])
-    _save_all(path, records)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    def update_references(current: list[dict]) -> None:
+        for item in current:
+            if item.get("id") in updated_ids:
+                item["last_referenced"] = now
+                item["reference_count"] = item.get("reference_count", 0) + 1
+    records = _mutate_all(path, update_references)
+    by_id = {item.get("id"): item for item in records}
+    scored = [(score, by_id.get(item.get("id"), item)) for score, item in scored]
 
     print(f"Found {len(scored)} learning(s), showing top {min(len(scored), 10)}:\n")
     for score, r in scored[:10]:
@@ -209,23 +229,20 @@ def cmd_check(args: argparse.Namespace) -> None:
         return
 
     project_root = _home()
-    stale_count = 0
-    for r in records:
-        if not r.get("files"):
-            continue
-        all_exist = True
-        for f in r["files"]:
-            fpath = project_root / f if not os.path.isabs(f) else Path(f)
-            if not fpath.exists():
-                all_exist = False
-                break
-        was_stale = r.get("stale", False)
-        r["stale"] = not all_exist
-        if r["stale"] and not was_stale:
-            stale_count += 1
-            print(f"  ✗ STALE: {r['pattern'][:60]} — file(s) deleted")
-
-    _save_all(path, records)
+    newly_stale: list[dict] = []
+    def refresh(current: list[dict]) -> None:
+        for r in current:
+            if not r.get("files"):
+                continue
+            all_exist = all((project_root / f if not os.path.isabs(f) else Path(f)).exists() for f in r["files"])
+            was_stale = r.get("stale", False)
+            r["stale"] = not all_exist
+            if r["stale"] and not was_stale:
+                newly_stale.append(r)
+    records = _mutate_all(path, refresh)
+    for r in newly_stale:
+        print(f"  ✗ STALE: {r['pattern'][:60]} — file(s) deleted")
+    stale_count = len(newly_stale)
     total_stale = sum(1 for r in records if r.get("stale"))
     print(f"\n{stale_count} newly stale, {total_stale} total stale out of {len(records)}")
 
@@ -255,8 +272,10 @@ def cmd_prune(args: argparse.Namespace) -> None:
             print(f"  [{r.get('confidence', 0)}/10] {r['pattern'][:80]}{' [STALE]' if r.get('stale') else ''}")
         return
 
-    kept = [r for i, r in enumerate(records) if i not in to_remove]
-    _save_all(path, kept)
+    remove_ids = {records[i].get("id") for i in to_remove}
+    def remove(current: list[dict]) -> None:
+        current[:] = [r for r in current if r.get("id") not in remove_ids]
+    kept = _mutate_all(path, remove)
     print(f"✓ Pruned {len(to_remove)} learning(s), {len(kept)} remaining")
 
 
@@ -343,11 +362,17 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
     scored.sort(key=lambda x: -x[0])
 
-    # 更新引用计数
-    for _, r in scored[:3]:
-        r["last_referenced"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        r["reference_count"] = r.get("reference_count", 0) + 1
-    _save_all(path, records)
+    # 更新引用计数；锁内重新加载，避免覆盖并发治理字段。
+    updated_ids = {r.get("id") for _, r in scored[:3]}
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    def update_references(current: list[dict]) -> None:
+        for item in current:
+            if item.get("id") in updated_ids:
+                item["last_referenced"] = now
+                item["reference_count"] = item.get("reference_count", 0) + 1
+    records = _mutate_all(path, update_references)
+    by_id = {item.get("id"): item for item in records}
+    scored = [(score, by_id.get(item.get("id"), item)) for score, item in scored]
 
     if args.json:
         print(json.dumps([r for _, r in scored[:5]], ensure_ascii=False))

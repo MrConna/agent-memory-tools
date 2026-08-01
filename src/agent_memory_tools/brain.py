@@ -225,7 +225,11 @@ def cmd_sync(args: argparse.Namespace) -> None:
         learnings = _load_project_learnings(project_path)
         project_name = Path(project_path).name
         for lrn in learnings:
-            if lrn.get("stale"):
+            if (
+                lrn.get("stale")
+                or lrn.get("lifecycle_status") != "graduated"
+                or lrn.get("scope") != "cross_project"
+            ):
                 continue  # 跳过 stale
             all_entries.append({
                 "project": project_name,
@@ -240,6 +244,11 @@ def cmd_sync(args: argparse.Namespace) -> None:
             })
 
     if not all_entries:
+        _save_index([])
+        EMBEDDINGS_FILE.unlink(missing_ok=True)
+        config["last_indexed"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        config["indexed_count"] = 0
+        _save_config(config)
         print("No learnings to index.")
         return
 
