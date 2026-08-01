@@ -139,7 +139,12 @@ bin/wiki add-page project-overview --summary "Durable project knowledge for agen
 bin/search rebuild
 bin/search query "authentication migration" --type memory --type context
 bin/patterns status
+bin/audit --json
 ```
+
+`bin/audit` combines governance, pattern, progress, wiki-source, and graph hygiene checks.
+Pass `--fix-safe` to apply only deterministic cleanup; candidates, provenance gaps,
+contradictions, and generated assets always remain human-reviewed.
 
 The generated `AGENTS.md` and `docs/knowledge-management.md` describe how to maintain the wiki: ingest sources into `raw/` and `knowledge/`, query against the wiki, and file answers back into it.
 

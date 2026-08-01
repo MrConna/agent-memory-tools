@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -75,7 +76,7 @@ def verify_repeated_pattern(pattern: str, *, evidence: list[str], targets: list[
         records = _load_strict()
         matches = [item for item in records if str(item.get("pattern", "")) == pattern]
         if not matches:
-            return True
+            return False
         item = matches[0]
         current = item.get("lifecycle_status")
         if current == "rejected":
@@ -91,6 +92,25 @@ def verify_repeated_pattern(pattern: str, *, evidence: list[str], targets: list[
                      "desired_targets": targets, "provenance": provenance, "governance_updated_at": now})
         _save_atomic(records)
     _event("governance_verified", item, "automation:repeated-pattern", evidence_count=len(evidence))
+    return True
+
+
+def ensure_pattern_candidate(pattern: str, *, source: str, tags: list[str], confidence: int) -> bool:
+    """Ensure automatically captured workflow evidence has one canonical candidate."""
+    with locked(_path()):
+        records = _load_strict()
+        matches = [item for item in records if str(item.get("pattern", "")) == pattern]
+        if matches:
+            return str(matches[0].get("lifecycle_status", "candidate")) != "rejected"
+        now = _now()
+        item = governed({
+            "id": hashlib.sha256(pattern.encode()).hexdigest()[:8], "pattern": pattern,
+            "confidence": confidence, "source": source or "automation:pattern",
+            "tags": tags, "files": [], "context": "", "created_at": now,
+            "last_referenced": now, "reference_count": 0, "stale": False,
+        })
+        records.append(item)
+        _save_atomic(records)
     return True
 
 

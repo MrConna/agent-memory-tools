@@ -175,10 +175,15 @@ def _record_locked(text: str, *, source: str, tags: str, confidence: int) -> dic
     targets = [name for name, wanted in (("knowledge", wants_knowledge), ("skill", wants_skill)) if wanted]
     allowed = True
     if targets:
-        from .governance import verify_repeated_pattern
+        from .governance import ensure_pattern_candidate, verify_repeated_pattern
+        if not ensure_pattern_candidate(
+            str(item["text"]), source=source,
+            tags=[str(value) for value in item.get("tags", [])], confidence=confidence,
+        ):
+            allowed = False
         allowed = verify_repeated_pattern(
             str(item["text"]), evidence=[str(value) for value in item.get("sources", [])], targets=targets,
-        )
+        ) if allowed else False
     if allowed and wants_knowledge and "knowledge" not in promoted:
         item["knowledge_path"] = _promote_knowledge(item)
         promoted.append("knowledge")

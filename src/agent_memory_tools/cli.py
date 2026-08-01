@@ -7,7 +7,7 @@ import argparse
 import sys
 from collections.abc import Callable, Sequence
 
-from . import automation, brain, codex_watcher, config, context, governance, health, memory, patterns, progress, search, session, wiki, workbench
+from . import audit, automation, brain, codex_watcher, config, context, governance, health, memory, patterns, progress, search, session, wiki, workbench
 from .installer import init_project, install_all
 
 
@@ -55,6 +55,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(patterns.main(rest))
     elif command == "governance":
         sys.exit(governance.main(rest))
+    elif command == "audit":
+        sys.exit(audit.main(rest))
     elif command == "init-project":
         parser = argparse.ArgumentParser(
             prog="agent-memory init-project",
@@ -93,6 +95,7 @@ Usage:
   agent-memory progress <start|update|list> ...
   agent-memory workbench [--port 8765] [--no-open]
   agent-memory search <rebuild|query> ...
+  agent-memory audit [--json] [--fix-safe]
   agent-memory patterns <record|status> ...
   agent-memory governance <status|verify|graduate|reject|withdraw|migrate> ...
   agent-memory init-project [path] [--force]
