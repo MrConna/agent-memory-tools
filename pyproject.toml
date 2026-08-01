@@ -49,6 +49,7 @@ agent-memory-progress = "agent_memory_tools.progress:main"
 agent-memory-workbench = "agent_memory_tools.workbench:main"
 agent-memory-search = "agent_memory_tools.search:main"
 agent-memory-patterns = "agent_memory_tools.patterns:main"
+agent-memory-graph = "agent_memory_tools.graph:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

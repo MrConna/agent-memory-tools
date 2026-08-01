@@ -42,6 +42,23 @@ def test_aggregates_governance_progress_and_graph(tmp_path: Path, monkeypatch) -
     assert {"GOVERNANCE_CANDIDATE", "PROGRESS_ACTIVE_DANGLING", "GRAPH_DANGLING", "GRAPH_CONTRADICTION"} <= codes
 
 
+def test_graph_supersedes_legacy_learning_key(tmp_path: Path, monkeypatch) -> None:
+    _setup(tmp_path, monkeypatch)
+    legacy = {"pattern": "old legacy method", "stale": False}
+    replacement = {"id": "new", "pattern": "new method", "stale": False}
+    learnings = tmp_path / "memory" / "learnings.jsonl"
+    learnings.write_text(json.dumps(legacy) + "\n" + json.dumps(replacement) + "\n", encoding="utf-8")
+    legacy_key = "memory:" + hashlib.sha1(legacy["pattern"].encode()).hexdigest()[:12]
+    edge = {"from": "memory:new", "to": legacy_key, "relation": "supersedes", "external_nodes": []}
+    (tmp_path / "memory" / "edges.jsonl").write_text(json.dumps(edge) + "\n", encoding="utf-8")
+
+    report = audit.run(fix_safe=True)
+
+    assert any(f["code"] == "GRAPH_SUPERSEDED_ACTIVE" and f["fixed"] for f in report["findings"])
+    current = [json.loads(line) for line in learnings.read_text(encoding="utf-8").splitlines()]
+    assert current[0]["stale"] is True
+
+
 def test_malformed_core_never_writes(tmp_path: Path, monkeypatch) -> None:
     _setup(tmp_path, monkeypatch)
     learnings = tmp_path / "memory" / "learnings.jsonl"

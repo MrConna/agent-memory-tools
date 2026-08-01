@@ -655,7 +655,7 @@ GENERATED_GIT_PATTERNS = (
     "/bin/memory", "/bin/context", "/bin/brain", "/bin/session", "/bin/wiki",
     "/bin/health", "/bin/lifecycle", "/bin/config", "/bin/codex-watcher",
     "/bin/progress", "/bin/workbench", "/bin/patterns", "/bin/governance",
-    "/bin/search", "/bin/audit",
+    "/bin/search", "/bin/graph", "/bin/audit",
 )
 
 
@@ -805,7 +805,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     (root / "wiki").mkdir(exist_ok=True)
 
     # Memory data files
-    for name in ("learnings.jsonl", "contexts.jsonl"):
+    for name in ("learnings.jsonl", "contexts.jsonl", "edges.jsonl"):
         target = root / "memory" / name
         if not target.exists():
             target.write_text("", encoding="utf-8")
@@ -864,7 +864,7 @@ def init_project(path: str | os.PathLike[str], *, force: bool = False) -> None:
     _install_codex_bridge(root, force=force)
 
     # Bin wrappers
-    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench", "search", "patterns", "governance", "audit"):
+    for name in ("memory", "context", "brain", "session", "wiki", "health", "lifecycle", "config", "codex-watcher", "progress", "workbench", "search", "patterns", "governance", "graph", "audit"):
         _write_wrapper(root / "bin" / name, name, force=force)
 
     _install_agent_integrations(root, force=force)

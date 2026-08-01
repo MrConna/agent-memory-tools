@@ -201,6 +201,103 @@ def test_wiki_rejects_external_sources_by_default() -> None:
         require("outside project" in result.stderr, result.stderr)
 
 
+def test_graph_edges_and_search_expansion() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        run_cli("init-project", str(root))
+        require((root / "memory" / "edges.jsonl").exists(), "edges.jsonl missing")
+        require((root / "bin" / "graph").exists(), "graph wrapper missing")
+        run_cli("memory", "add", "Alpha uses scoped worktrees for isolation",
+                "--confidence", "8", "--source", "t", "--tags", "alpha", cwd=root)
+        run_cli("memory", "add", "Beta replaces the old detachment approach entirely",
+                "--confidence", "9", "--source", "t", "--tags", "beta", cwd=root)
+        learnings = [
+            json.loads(line)
+            for line in (root / "memory" / "learnings.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        keys = [f"memory:{item['id']}" for item in learnings]
+        run_cli("search", "rebuild", cwd=root)
+
+        # Unknown relation is rejected (controlled vocabulary).
+        bad_rel = run_cli("graph", "link", keys[1], keys[0], "--relation", "bogus", cwd=root)
+        require(bad_rel.returncode != 0, bad_rel.stdout)
+
+        # Unknown node key is rejected without --force (trust-boundary validation).
+        bad_key = run_cli("graph", "link", "memory:doesnotexist", keys[0], "--relation", "relates-to", cwd=root)
+        require(bad_key.returncode != 0, bad_key.stdout)
+
+        # Valid edge: Beta supersedes Alpha.
+        link = run_cli("graph", "link", keys[1], keys[0], "--relation", "supersedes", "--note", "newer", cwd=root)
+        require(link.returncode == 0, link.stderr)
+
+        # Idempotent: linking again does not duplicate.
+        run_cli("graph", "link", keys[1], keys[0], "--relation", "supersedes", cwd=root)
+        edges = [
+            line for line in (root / "memory" / "edges.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+        require(len(edges) == 1, f"expected 1 edge, got {len(edges)}")
+
+        neighbors = run_cli("graph", "neighbors", keys[1], "--json", cwd=root)
+        require(keys[0] in neighbors.stdout, neighbors.stdout)
+
+        # Graph-completion: a query matching only Beta also surfaces Alpha via the edge.
+        expanded = run_cli("search", "query", "replaces old detachment approach",
+                           "--expand", "1", "--json", cwd=root)
+        require(keys[0] in expanded.stdout, expanded.stdout)
+        require("expanded_from" in expanded.stdout, expanded.stdout)
+
+
+def test_graph_doctor_flags_and_fixes_superseded() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        run_cli("init-project", str(root))
+        run_cli("memory", "add", "Old approach uses polling loops",
+                "--confidence", "7", "--source", "t", "--tags", "old", cwd=root)
+        run_cli("memory", "add", "New approach uses event streams instead",
+                "--confidence", "9", "--source", "t", "--tags", "new", cwd=root)
+        learnings = [
+            json.loads(line)
+            for line in (root / "memory" / "learnings.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        old_key = f"memory:{learnings[0]['id']}"
+        new_key = f"memory:{learnings[1]['id']}"
+        run_cli("search", "rebuild", cwd=root)
+        run_cli("graph", "link", new_key, old_key, "--relation", "supersedes", cwd=root)
+        # A dangling edge (endpoint removed / never indexed), added with --force.
+        run_cli("graph", "link", new_key, "memory:ghost", "--relation", "relates-to", "--force", cwd=root)
+
+        report = run_cli("graph", "doctor", "--json", cwd=root)
+        require(report.returncode == 1, "doctor should exit 1 when issues exist")
+        payload = json.loads(report.stdout)
+        require(any(e["to"] == old_key for e in payload["superseded_active"]), report.stdout)
+        require(len(payload["dangling"]) == 0, report.stdout)
+
+        fixed = run_cli("graph", "doctor", "--fix", "--json", cwd=root)
+        require(fixed.returncode == 0, fixed.stdout)
+        fixed_payload = json.loads(fixed.stdout)
+        require(fixed_payload["fixed"]["marked_stale"] == 1, fixed.stdout)
+        require(fixed_payload["fixed"]["dangling_removed"] == 0, fixed.stdout)
+
+        # Superseded learning is now stale; explicit external edge is retained.
+        after = [
+            json.loads(line)
+            for line in (root / "memory" / "learnings.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        by_id = {item["id"]: item for item in after}
+        require(by_id[learnings[0]["id"]]["stale"] is True, "old learning should be stale")
+        require(by_id[learnings[1]["id"]].get("stale") is False, "new learning must stay active")
+        edges = [
+            line for line in (root / "memory" / "edges.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+        require(len(edges) == 2, f"external edge should be retained, got {len(edges)} edges")
+
+        clean = run_cli("graph", "doctor", cwd=root)
+        require(clean.returncode == 0, clean.stdout)
+
+
 def main() -> None:
     tests = [
         test_init_project_installs_wrappers,
@@ -210,6 +307,8 @@ def main() -> None:
         test_wiki_mutation_fails_on_invalid_sources_jsonl,
         test_wiki_retracking_changed_source_clears_stale_state,
         test_wiki_rejects_external_sources_by_default,
+        test_graph_edges_and_search_expansion,
+        test_graph_doctor_flags_and_fixes_superseded,
     ]
     for test in tests:
         test()

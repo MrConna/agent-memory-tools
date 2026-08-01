@@ -495,6 +495,51 @@ def query(
         connection.close()
 
 
+def fetch_by_keys(keys: list[str]) -> dict[str, dict[str, object]]:
+    """Return indexed rows for the given entry_keys, keyed by entry_key."""
+    if not keys or not _db_path().exists():
+        return {}
+    connection = sqlite3.connect(_db_path())
+    connection.row_factory = sqlite3.Row
+    try:
+        placeholders = ",".join("?" for _ in keys)
+        rows = connection.execute(
+            f"SELECT *, 0.0 AS bm25_score FROM entries WHERE entry_key IN ({placeholders})", keys
+        )
+        return {str(row["entry_key"]): dict(row) for row in rows}
+    finally:
+        connection.close()
+
+
+def expand_with_graph(results: list[dict[str, object]], hops: int) -> list[dict[str, object]]:
+    """Append graph neighbors of the result nodes (graph-completion retrieval).
+
+    Follows edges in memory/edges.jsonl so retrieval returns a connected
+    subgraph instead of isolated hits. Neighbors are annotated with the
+    relation and source node that pulled them in."""
+    if hops <= 0 or not results:
+        return results
+    from . import graph  # lazy: avoids import cycle
+
+    present = {str(row["entry_key"]) for row in results}
+    additions: list[dict[str, object]] = []
+    for row in results:
+        for hop in graph.neighbors(str(row["entry_key"]), hops=hops):
+            if hop["key"] in present:
+                continue
+            present.add(hop["key"])
+            fetched = fetch_by_keys([hop["key"]]).get(hop["key"])
+            if not fetched:
+                continue
+            fetched["expanded_from"] = hop["via"]
+            fetched["graph_root"] = str(row["entry_key"])
+            fetched["relation"] = hop["relation"]
+            fetched["graph_distance"] = hop["distance"]
+            fetched["combined_score"] = 0.0
+            additions.append(fetched)
+    return results + additions
+
+
 def _index_is_fresh() -> bool:
     from .config import load_config
 
@@ -609,6 +654,8 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--json", action="store_true")
     find.add_argument("--full", action="store_true", help="Print full indexed content")
     find.add_argument("--max-chars", type=_positive_int, default=4000)
+    find.add_argument("--expand", type=_nonnegative_int, default=0, metavar="HOPS",
+                      help="Also return graph neighbors of hits, up to HOPS edges away")
     args = parser.parse_args(argv)
     if args.command == "rebuild":
         count = rebuild()
@@ -619,6 +666,7 @@ def main(argv: list[str] | None = None) -> int:
         memory_confidence_min=args.memory_confidence_min,
         status=args.status, include_stale=args.include_stale,
     )
+    results = expand_with_graph(results, args.expand)
     if args.json:
         print(json.dumps(results, ensure_ascii=False))
         return 0
@@ -628,7 +676,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Found {len(results)} indexed entr{'y' if len(results) == 1 else 'ies'}:\n")
     for result in results:
         confidence = f" confidence={result['confidence']}" if result["confidence"] else ""
-        print(f"  [{result['kind']}] {result['title']}{confidence}")
+        via = f"  ↳ via [{result['relation']}] from {result['expanded_from']}" if result.get("expanded_from") else ""
+        print(f"  [{result['kind']}] {result['title']}{confidence}{via}")
         if result["summary"]:
             print(f"           {result['summary'][:240]}")
         print(f"           {result['path']}")

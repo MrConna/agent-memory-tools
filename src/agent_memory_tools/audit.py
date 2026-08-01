@@ -226,7 +226,10 @@ def run(*, fix_safe: bool = False) -> dict[str, Any]:
             keys = {entry.key for entry in collect_entries()}
         except Exception as exc:  # audit must describe inability instead of mutating
             keys = set(); findings.append(_finding("GRAPH_KEYS_UNAVAILABLE", "error", "graph", str(exc)))
-        dangling = [e for e in edges if e.get("from") not in keys or e.get("to") not in keys]
+        dangling = [e for e in edges if any(
+            node not in keys and node not in set(e.get("external_nodes", []))
+            for node in (e.get("from"), e.get("to"))
+        )]
         for edge in dangling:
             f = _finding("GRAPH_DANGLING", "warning", "graph", "Edge has a missing endpoint",
                          subject=f"{edge.get('from')}->{edge.get('to')}", path="memory/edges.jsonl", fixable=False,
@@ -236,10 +239,10 @@ def run(*, fix_safe: bool = False) -> dict[str, Any]:
             if edge.get("relation") == "contradicts":
                 findings.append(_finding("GRAPH_CONTRADICTION", "warning", "graph", "Contradiction requires review",
                                          subject=f"{edge.get('from')}->{edge.get('to')}", path="memory/edges.jsonl", details=edge))
-        # ``graph link --force`` has no external-node marker. Dangling edges may
-        # therefore be intentional and are report-only until that provenance exists.
         if not learn_error:
-            by_key = {f"memory:{x.get('id')}": x for x in learnings if x.get("id")}
+            from .graph import _learning_key
+
+            by_key = {key: item for item in learnings if (key := _learning_key(item))}
             stale_targets = {str(e.get("to")) for e in edges if e.get("relation") == "supersedes" and e.get("to") in by_key and not by_key[str(e.get("to"))].get("stale")}
             for target in stale_targets:
                 f = _finding("GRAPH_SUPERSEDED_ACTIVE", "warning", "graph", "Superseded learning remains active",
@@ -251,10 +254,10 @@ def run(*, fix_safe: bool = False) -> dict[str, Any]:
                     if current_error:
                         fixes["skipped"] += len(stale_targets)
                     else:
-                        current_by_key = {f"memory:{x.get('id')}": x for x in current if x.get("id")}
+                        current_by_key = {key: item for item in current if (key := _learning_key(item))}
                         actual = {target for target in stale_targets if target in current_by_key and not current_by_key[target].get("stale")}
                         for item in current:
-                            if f"memory:{item.get('id')}" in actual:
+                            if _learning_key(item) in actual:
                                 item["stale"] = True
                         if actual:
                             atomic_write(learn_path, "".join(json.dumps(x, ensure_ascii=False) + "\n" for x in current))
