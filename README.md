@@ -173,6 +173,8 @@ agent-memory search query "routing decision" --top 10
 
 ## Unified Search Index
 
+本地 Gemma 4 的能力边界和实测结果见：[本地 Gemma 4 评测记录](docs/local-gemma4-evaluation.md)。
+
 `bin/search` unifies project Memory, Context, Observations, all Wiki/Knowledge trees,
 Rules, Entities, Progress records, and project Skills. JSONL and Markdown remain the
 source of truth; `memory/index.db` is a disposable SQLite index that can always be rebuilt.
